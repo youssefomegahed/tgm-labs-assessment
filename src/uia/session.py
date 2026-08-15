@@ -146,6 +146,39 @@ def dismiss_message_box(title_contains: str = "", button: str = "OK",
     return message
 
 
+def minimize_consoles() -> int:
+    """Get console windows off the screen, and say how many were moved.
+
+    The console prlctl opens sits on top of Fakturama, where it blocks clicks on
+    whatever it covers and, worse, ends up inside the screenshots the vision layer
+    reads tables from. A covered grid captures as a blank rectangle, and a blank grid
+    reads as "no rows", which sends the flow off to create a duplicate record.
+
+    Done here in Python because the obvious PowerShell fix, an Add-Type in the exec
+    prelude, compiles C# on the fly and that compile hung indefinitely under x64
+    emulation. win32gui needs no compilation.
+    """
+    import win32con
+    import win32gui
+
+    console_classes = ("CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass")
+    moved = []
+
+    def visit(handle, _):
+        try:
+            if win32gui.IsWindowVisible(handle) and \
+                    win32gui.GetClassName(handle) in console_classes and \
+                    not win32gui.IsIconic(handle):
+                win32gui.ShowWindow(handle, win32con.SW_MINIMIZE)
+                moved.append(handle)
+        except Exception:
+            pass
+        return True
+
+    win32gui.EnumWindows(visit, None)
+    return len(moved)
+
+
 def clear_message_boxes(limit: int = 5) -> list[str]:
     """Dismiss any alert already on screen, and say what they were.
 

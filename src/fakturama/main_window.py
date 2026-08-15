@@ -39,6 +39,9 @@ class MainWindow:
         return cls(window)
 
     def focus(self) -> None:
+        # Nothing may sit over the app: clicks land on whatever covers it, and the
+        # vision layer reads tables from screenshots of these regions.
+        session.minimize_consoles()
         self.window.set_focus()
 
     def click_toolbar(self, key: str) -> None:
