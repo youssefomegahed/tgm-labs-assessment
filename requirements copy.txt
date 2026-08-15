@@ -1,8 +1,0 @@
-google-genai
-python-dotenv
-pillow
-pytest
-
-# UI automation only runs on Windows, so the marker keeps `pip install -r` working
-# on the Mac where the extraction and validation side is developed.
-pywinauto; sys_platform == "win32"
