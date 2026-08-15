@@ -99,20 +99,21 @@ def find(root, timeout: float = DEFAULT_TIMEOUT, **criteria):
     return element
 
 
-def labelled(root, label: str, control_type: str = "Edit", max_gap: int = 500,
-             timeout: float = DEFAULT_TIMEOUT):
-    """The control that a Static label is pointing at.
+def labelled_all(root, label: str, control_type: str = "Edit", max_gap: int = 900,
+                 timeout: float = DEFAULT_TIMEOUT) -> list:
+    """Every control of `control_type` on the same row as a label, left to right.
 
-    SWT copies most field labels into the field's accessible name, but not all of them:
-    in the Order editor the No. and Date boxes are anonymous while their labels are
-    not. For those, find the label and take the nearest control of the wanted type to
-    its right on the same row.
+    SWT copies most field labels into the field's accessible name, but not all of them.
+    Two shapes need this. A single anonymous field beside its label, like Date in the
+    Order editor. And one label heading several fields: "ZIP - City" sits in front of a
+    ZIP box and a City box, and "First Name Last Name" in front of two more. In both
+    cases reading order settles which is which, the same way the eye does.
     """
     anchor = find(root, control_type="Text", name=label, timeout=timeout)
     box = anchor.rectangle()
     middle = (box.top + box.bottom) / 2
 
-    best, best_gap = None, max_gap + 1
+    on_the_row = []
     for element in iter_descendants(root):
         if element.element_info.control_type != control_type:
             continue
@@ -120,12 +121,21 @@ def labelled(root, label: str, control_type: str = "Edit", max_gap: int = 500,
         if not (rect.top <= middle <= rect.bottom):
             continue
         gap = rect.left - box.right
-        if 0 <= gap < best_gap:
-            best, best_gap = element, gap
+        if 0 <= gap <= max_gap:
+            on_the_row.append((rect.left, element))
 
-    if best is None:
-        raise ControlNotFound(f"no {control_type} to the right of the {label!r} label")
-    return best
+    return [element for _, element in sorted(on_the_row, key=lambda pair: pair[0])]
+
+
+def labelled(root, label: str, control_type: str = "Edit", index: int = 0,
+             max_gap: int = 900, timeout: float = DEFAULT_TIMEOUT):
+    """The control a label points at, or the `index`-th of several."""
+    found = labelled_all(root, label, control_type, max_gap, timeout)
+    if len(found) <= index:
+        raise ControlNotFound(
+            f"wanted {control_type} #{index} beside {label!r}, found {len(found)}"
+        )
+    return found[index]
 
 
 def stacked_icons(root, anchor_label: str, control_type: str = "Image",
