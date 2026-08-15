@@ -18,6 +18,7 @@ import io
 
 from google.genai import types
 
+from src.errors import ExtractionError
 from src.gemini import generate_json
 
 READ_TABLE_PROMPT = """\
@@ -85,8 +86,31 @@ def capture(element, save_to: str | None = None) -> bytes:
     return capture_region((rect.left, rect.top, rect.right, rect.bottom), save_to)
 
 
+def looks_blank(image: bytes, tolerance: int = 8) -> bool:
+    """Is this capture one flat colour, give or take?
+
+    A real grid always has at least a header row and column separators. A capture that
+    is a single colour means something opaque was covering the region, which happened
+    here: the console window the automation is driven from sat over the app, and the
+    screenshot was of the console's black body rather than the table.
+    """
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(image)).convert("L").resize((64, 64))
+    lightest, darkest = picture.getextrema()
+    return (darkest - lightest) <= tolerance
+
+
 def read_table(image: bytes, columns: list[str], *, what: str = "table") -> list[dict]:
     """Read a drawn table's rows into dicts keyed by column name."""
+    if looks_blank(image):
+        # Refusing is important: sent to the model, a covered grid reads as "no rows",
+        # and a no-rows answer sends the flow off to create a duplicate record.
+        raise ExtractionError(
+            f"the capture of {what} is a blank rectangle; something is covering the "
+            f"application window"
+        )
+
     result = generate_json(
         [
             types.Part.from_bytes(data=image, mime_type="image/png"),
