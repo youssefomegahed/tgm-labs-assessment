@@ -170,6 +170,17 @@ def select_combo(element, value: str, *, attempts: int = 3,
         if attempt:
             time.sleep(0.6 * attempt)
 
+        # Raise the owning window first. A dropdown cannot render its list if something
+        # is covering the control, and the thing covering it is usually the console the
+        # automation is being driven from. Writes through the value pattern are immune to
+        # this, so the symptom is text fields working while a combo silently keeps its
+        # default.
+        try:
+            element.set_focus()
+            time.sleep(SETTLE)
+        except Exception:
+            pass
+
         try:
             element.select(value)
             time.sleep(SETTLE)
