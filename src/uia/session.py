@@ -109,7 +109,12 @@ def message_boxes() -> list:
     return _windows_of_class(MESSAGE_BOX_CLASS)
 
 
-def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
+def find_dialog(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
+    """Wait for a native dialog with a matching title.
+
+    Fakturama's selector dialogs, "Select the address" and "Select a product", use the
+    same native class as its alerts and host SWT panes inside it.
+    """
     wanted = title_contains.casefold()
 
     def look():
@@ -118,7 +123,11 @@ def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT)
                 return window
         return None
 
-    return wait_until(look, timeout=timeout, description=f"message box {title_contains!r}")
+    return wait_until(look, timeout=timeout, description=f"dialog {title_contains!r}")
+
+
+def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
+    return find_dialog(title_contains, timeout)
 
 
 def dismiss_message_box(title_contains: str = "", button: str = "OK",
