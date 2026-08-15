@@ -38,21 +38,38 @@ def matches(element, control_type=None, name=None, contains=None, class_name=Non
     return True
 
 
-def find_all(root, control_type=None, name=None, contains=None, class_name=None) -> list:
-    """Every matching descendant, right now, without waiting.
+MAX_DEPTH = 16
 
-    control_type is pushed down into the UIA query where possible: walking the whole
-    tree in Python and filtering afterwards is noticeably slower on Fakturama's main
-    window, which carries several hundred controls.
+
+def iter_descendants(root, max_depth: int = MAX_DEPTH):
+    """Breadth-first walk of the tree below `root`, bounded by depth.
+
+    Deliberately not pywinauto's own `descendants()`. That call hangs for minutes on
+    Fakturama's main window, while walking the same tree with `children()` covers all
+    of it in well under a second. Going level by level also means a locator finds a
+    shallow match without paying for the deep subtrees, which matters because the item
+    table underneath an Order editor is where most of the nodes live.
     """
-    try:
-        candidates = root.descendants(control_type=control_type) if control_type \
-            else root.descendants()
-    except Exception:
-        return []
+    level, depth = [root], 0
+    while level and depth < max_depth:
+        following = []
+        for node in level:
+            try:
+                children = node.children()
+            except Exception:
+                continue
+            for child in children:
+                yield child
+                following.append(child)
+        level, depth = following, depth + 1
 
+
+def find_all(root, control_type=None, name=None, contains=None, class_name=None,
+             max_depth: int = MAX_DEPTH) -> list:
+    """Every matching descendant, right now, without waiting."""
     return [
-        element for element in candidates
+        element
+        for element in iter_descendants(root, max_depth)
         if matches(element, control_type, name, contains, class_name)
     ]
 

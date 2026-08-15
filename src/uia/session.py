@@ -52,16 +52,42 @@ def desktop() -> Desktop:
     return Desktop(backend="uia")
 
 
-def shells() -> list:
-    """Every SWT top-level window currently open."""
-    found = []
-    for window in desktop().windows():
+def _windows_of_class(prefix: str) -> list:
+    """Top-level windows whose class name starts with `prefix`.
+
+    This goes through Win32 EnumWindows rather than pywinauto's own enumeration on
+    purpose. Owned windows, which is what Fakturama's alerts are, only show up in
+    pywinauto with top_level_only off, and that walks the entire UIA tree of every
+    window on the desktop. On Fakturama's main window that takes minutes. EnumWindows
+    already returns owned windows and costs nothing.
+    """
+    import win32gui
+
+    handles: list[int] = []
+
+    def collect(handle, _):
         try:
-            if (window.element_info.class_name or "").startswith(SHELL_CLASS):
-                found.append(window)
+            if win32gui.IsWindowVisible(handle) and \
+                    win32gui.GetClassName(handle).startswith(prefix):
+                handles.append(handle)
+        except Exception:
+            pass
+        return True
+
+    win32gui.EnumWindows(collect, None)
+
+    found = []
+    for handle in handles:
+        try:
+            found.append(desktop().window(handle=handle).wrapper_object())
         except Exception:
             continue
     return found
+
+
+def shells() -> list:
+    """Every SWT top-level window currently open."""
+    return _windows_of_class(SHELL_CLASS)
 
 
 def find_shell(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
@@ -79,24 +105,8 @@ def find_shell(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
 
 
 def message_boxes() -> list:
-    """Native alert dialogs currently on screen.
-
-    These are owned windows, so they only show up with top_level_only off.
-    """
-    found = []
-    try:
-        candidates = desktop().windows(top_level_only=False, visible_only=True)
-    except Exception:
-        return []
-
-    for window in candidates:
-        try:
-            info = window.element_info
-            if info.class_name == MESSAGE_BOX_CLASS and info.control_type == "Window":
-                found.append(window)
-        except Exception:
-            continue
-    return found
+    """Native alert dialogs currently on screen."""
+    return _windows_of_class(MESSAGE_BOX_CLASS)
 
 
 def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
