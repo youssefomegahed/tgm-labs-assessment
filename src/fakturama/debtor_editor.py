@@ -11,15 +11,14 @@ from src.models import Address, Debtor
 from src.uia import actions
 from src.uia.locator import find, find_optional, labelled
 
-TAB = "New Debtor"
-
-# Fakturama's own wording for the two roles an address can carry.
-INVOICE_ROLE = "invoice address"
-DELIVERY_ROLE = "delivery address"
-BOTH_ROLES = "invoice address;delivery address"
-
-
 class DebtorEditor:
+    TAB = "New Debtor"
+
+    # Fakturama's own wording for the roles an address can carry.
+    INVOICE_ROLE = "invoice address"
+    DELIVERY_ROLE = "delivery address"
+    BOTH_ROLES = "invoice address;delivery address"
+
     def __init__(self, main_window):
         self.main = main_window
         self.window = main_window.window

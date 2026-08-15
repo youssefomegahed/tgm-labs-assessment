@@ -51,6 +51,38 @@ class PaymentEditor:
             vision.capture_region(box, save_to), COLUMNS, what="terms of payment"
         )
 
+    def ensure(self, method: str, save_to: str | None = None) -> bool:
+        """Make sure the method exists, and say whether we had to create it.
+
+        Called before the Debtor editor is opened, not after. The Debtor's Payment
+        dropdown is built when that editor opens and never refreshes, so a method
+        created afterwards is invisible to it no matter how the tab is refocused.
+        """
+        from src.matching import payment_matches, resolve_one
+
+        self.open_view()
+        rows = self.existing(save_to)
+
+        found = resolve_one(
+            rows, lambda row: payment_matches(row, method),
+            what=f"payment method {method!r}", stage="payment method",
+        )
+        if found is not None:
+            return False
+
+        self.create(method)
+
+        # Confirm it landed, the same way the brief confirms a Debtor: go back and look.
+        rows = self.existing()
+        if resolve_one(rows, lambda row: payment_matches(row, method),
+                       what=f"payment method {method!r}",
+                       stage="payment method") is None:
+            raise ManualReviewRequired(
+                f"saved {method!r} but it is not in the list afterwards",
+                stage="payment method",
+            )
+        return True
+
     def create(self, method: str) -> None:
         """Fill in a new payment method exactly as the brief specifies.
 
