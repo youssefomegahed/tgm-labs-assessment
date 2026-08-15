@@ -9,6 +9,7 @@ between runs is a matter of restoring a clean copy of it.
     C:\\dev\\venv\\Scripts\\python.exe tools\\first_run.py
 """
 
+import os
 import pathlib
 import sys
 import time
@@ -16,7 +17,9 @@ import time
 from src.uia import actions, session
 from src.uia.locator import find, find_optional
 
-DATA_DIR = r"C:\FakturamaData"
+# Overridable, but keeping it at a known path is what makes resetting between runs a
+# matter of restoring a copy of one directory.
+DATA_DIR = os.environ.get("FAKTURAMA_DATA", r"C:\FakturamaData")
 
 
 def main() -> int:
