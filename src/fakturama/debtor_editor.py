@@ -56,8 +56,21 @@ class DebtorEditor:
                            what=title)
 
     def fill_address(self, address: Address, contact_email: str = "",
-                     contact_phone: str = "") -> None:
-        """Street, ZIP, City, Country, and the contact details that sit beside them."""
+                     contact_phone: str = "", company: str = "") -> None:
+        """Street, ZIP, City, Country, and the contact details that sit beside them.
+
+        `additional name` carries the name heading the address block when it is not just
+        the company again. Our sample's delivery block reads "Northstar Office
+        Warehouse", and dropping it both loses real data and appears to be what made
+        Fakturama reject the address as invalid on save.
+        """
+        if address.name and address.name != company:
+            actions.set_text(
+                find(self.window, control_type="Edit", name="additional name"),
+                address.name,
+                what="additional name",
+            )
+
         actions.set_text(
             find(self.window, control_type="Edit", name="Street"),
             address.street,

@@ -88,6 +88,7 @@ def _create(main_window, order: OrderData, log) -> None:
         debtor.billing,
         contact_email=debtor.contact.email,
         contact_phone=debtor.contact.phone,
+        company=debtor.company,
     )
 
     if debtor.delivery_is_billing:
