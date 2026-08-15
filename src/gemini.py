@@ -19,8 +19,14 @@ DEFAULT_MODEL = "gemini-flash-latest"
 
 # The free tier hands out 503s when the model is busy and 429s when we are. Both clear
 # on their own, so they are worth waiting out rather than failing a run over.
+#
+# Patient on purpose. These calls sit in the middle of a long UI flow that has already
+# created master data and cannot be resumed from where it stopped, so throwing away ten
+# minutes of work rather than waiting half a minute is a bad trade. Roughly a minute of
+# total backoff across six attempts.
 _RETRYABLE = {429, 500, 503}
-_MAX_ATTEMPTS = 4
+_MAX_ATTEMPTS = 6
+_MAX_BACKOFF = 20
 
 
 def client() -> genai.Client:
@@ -59,8 +65,10 @@ def generate_json(contents: list, schema: dict, *, what: str = "response") -> di
             break
         except genai_errors.APIError as exc:
             if exc.code not in _RETRYABLE or attempt == _MAX_ATTEMPTS - 1:
-                raise ExtractionError(f"{model} failed reading {what}: {exc}") from exc
-            time.sleep(2**attempt)
+                raise ExtractionError(
+                    f"{model} failed reading {what} after {attempt + 1} attempts: {exc}"
+                ) from exc
+            time.sleep(min(2**attempt, _MAX_BACKOFF))
 
     if not response.text:
         raise ExtractionError(f"model returned nothing for {what}")
