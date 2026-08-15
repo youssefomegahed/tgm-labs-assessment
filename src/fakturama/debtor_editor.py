@@ -93,9 +93,35 @@ class DebtorEditor:
         The brief only spells out the case where billing and delivery are the same and
         the Main address carries both roles. Our sample ships to a different site, so it
         needs a second address.
+
+        Clicking + creates the tab without bringing it to the front, and that is not a
+        cosmetic problem. Text fields can still be written, because the value pattern
+        does not care whether a control is visible, but a dropdown cannot be expanded on
+        a page that is not showing. The symptom was the new address taking its Street,
+        ZIP and City happily and then silently keeping the default Country.
         """
         actions.click(find(self.window, control_type="Button", name="+"))
-        time.sleep(1)
+        time.sleep(1.5)
+        self.focus_last_address_tab()
+
+    def focus_last_address_tab(self) -> None:
+        """Bring the right-most address tab to the front.
+
+        Found by position rather than by name because the tabs are "Main address" and
+        then "additional address #1", "#2" and so on, and the numbering depends on how
+        many exist.
+        """
+        from src.uia.locator import find_all
+
+        tabs = [
+            tab for tab in find_all(self.window, control_type="TabItem")
+            if "address" in (tab.element_info.name or "").casefold()
+        ]
+        if not tabs:
+            raise LookupError("no address tabs found")
+
+        rightmost = max(tabs, key=lambda tab: tab.rectangle().left)
+        actions.select_tab(rightmost, what=rightmost.element_info.name)
 
     # --- miscellaneous and payment -------------------------------------------
 
