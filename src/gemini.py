@@ -16,7 +16,14 @@ from google.genai import types
 
 from src.errors import ExtractionError
 
-DEFAULT_MODEL = "gemini-flash-latest"
+# Flash-Lite rather than Flash, because of quota rather than capability. The free tier
+# allows 20 requests per day per model for gemini-3.7-flash, which "gemini-flash-latest"
+# resolves to, and a single run of this flow spends several: one for the order image and
+# one for every drawn grid it has to read. That cap is reached after a couple of runs.
+# The Lite tier is far more generous and reads these small tables perfectly well.
+#
+# Override with GEMINI_MODEL to use something else.
+DEFAULT_MODEL = "gemini-flash-lite-latest"
 
 # The free tier hands out 503s when the model is busy and 429s when we are. Both clear
 # on their own, so they are worth waiting out rather than failing a run over.
