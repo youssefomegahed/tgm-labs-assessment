@@ -137,15 +137,58 @@ def is_checked(element) -> bool:
         return bool(element.legacy_properties().get("State", 0) & 0x10)
 
 
-def select_combo(element, value: str, *, what: str = "dropdown") -> None:
-    """Pick an option by its exact text."""
+def combo_items(element) -> list[str]:
+    """The options a dropdown offers, by expanding it and reading the list."""
+    try:
+        element.expand()
+        time.sleep(SETTLE)
+        names = [
+            (item.element_info.name or "").strip()
+            for item in element.descendants(control_type="ListItem")
+        ]
+        element.collapse()
+        return [name for name in names if name]
+    except Exception:
+        return []
+
+
+def select_combo(element, value: str, *, how_close=None, what: str = "dropdown") -> None:
+    """Pick an option by its exact text.
+
+    Typing the value is not a safe fallback here. An SWT combo prefix-matches on every
+    keystroke, so typing "Credit transfer" walks through several entries and can settle
+    on a different one: this landed on "Standing agreement" before the read-back caught
+    it. Expanding the list and clicking the matching item is the reliable route.
+    """
     try:
         element.select(value)
+        time.sleep(SETTLE)
+        if read_value(element).strip() == value:
+            return
     except Exception:
-        element.set_focus()
-        element.type_keys(str(value), with_spaces=True, pause=0.02)
+        pass
 
-    time.sleep(SETTLE)
-    actual = read_value(element) or (element.selected_text() if hasattr(element, "selected_text") else "")
-    if actual.strip() != value:
+    try:
+        element.expand()
+        time.sleep(SETTLE)
+        for item in element.descendants(control_type="ListItem"):
+            if (item.element_info.name or "").strip() == value:
+                try:
+                    item.select()
+                except Exception:
+                    item.click_input()
+                time.sleep(SETTLE)
+                break
+        else:
+            element.collapse()
+            raise VerificationFailed(
+                what, value, f"not offered; options are {combo_items(element)}"
+            )
+    except VerificationFailed:
+        raise
+    except Exception:
+        pass
+
+    actual = read_value(element).strip()
+    if actual != value:
         raise VerificationFailed(what, value, actual)
