@@ -40,9 +40,11 @@ class MainWindow:
 
     def focus(self) -> None:
         # Nothing may sit over the app: clicks land on whatever covers it, and the
-        # vision layer reads tables from screenshots of these regions.
+        # vision layer reads tables from screenshots of these regions. The window must
+        # also be maximized, for the same reason.
         session.minimize_consoles()
         self.window.set_focus()
+        session.ensure_maximized(self.window)
 
     def click_toolbar(self, key: str) -> None:
         actions.click(find(self.window, control_type="Button", name=TOOLBAR[key]))
@@ -91,25 +93,30 @@ class MainWindow:
         """Bring the bottom panel back, which verification reads later."""
         self._editor_stack_button("Restore")
 
-    def _editor_stack_button(self, name: str) -> None:
-        from src.uia.locator import find_all
+    # The window's own title bar carries Minimize/Maximize/Restore too, and clicking
+    # those resizes the whole application rather than the editor stack. They are
+    # distinguishable: title bar buttons sit at the very top and are roughly twice as
+    # wide as the small pane buttons.
+    TITLE_BAR_DEPTH = 120
+    PANE_BUTTON_MAX_WIDTH = 60
 
-        editors = find_all(self.window, control_type="TabItem")
-        if not editors:
-            return
-        # The editor stack's own toolbar sits level with the editor tabs, well above
-        # the bottom panel's copy of the same buttons.
-        top = min(tab.rectangle().top for tab in editors)
+    def _editor_stack_button(self, name: str) -> None:
+        import time
+
+        from src.uia.locator import find_all
 
         candidates = [
             button for button in find_all(self.window, control_type="Button", name=name)
-            if abs(button.rectangle().top - top) < 300
+            if button.rectangle().top > self.TITLE_BAR_DEPTH
+            and button.rectangle().width() <= self.PANE_BUTTON_MAX_WIDTH
         ]
-        if candidates:
-            actions.click(min(candidates, key=lambda b: b.rectangle().top))
-            import time
+        if not candidates:
+            return
 
-            time.sleep(1.0)
+        # Topmost of the remaining ones is the editor stack; the lower copy belongs to
+        # the bottom panel.
+        actions.click(min(candidates, key=lambda button: button.rectangle().top))
+        time.sleep(1.0)
 
     def save(self) -> None:
         """The toolbar Save, which the brief is careful to say is clicked exactly once."""

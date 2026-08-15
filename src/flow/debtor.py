@@ -50,6 +50,9 @@ def _try_select(main_window, order: OrderData, log) -> bool:
     Returns True when a single exact Debtor was selected. Raises when the results are
     ambiguous, because choosing between them is a person's job.
     """
+    # The grid is read from a screen region derived from control positions, so the
+    # window must be maximized and unobstructed before that region means anything.
+    main_window.focus()
     main_window.focus_editor(OrderEditor.TAB)
     OrderEditor(main_window).open_address_selector()
 

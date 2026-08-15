@@ -179,6 +179,26 @@ def minimize_consoles() -> int:
     return len(moved)
 
 
+def ensure_maximized(window) -> bool:
+    """Make sure the application fills the screen, and say whether it had to act.
+
+    Worth asserting rather than assuming. A stray click on the title bar's Restore
+    button shrinks the window, and everything downstream that computes a screen region
+    from control positions then reads the wrong pixels.
+    """
+    import win32con
+    import win32gui
+
+    handle = window.handle
+    placement = win32gui.GetWindowPlacement(handle)
+    if placement[1] == win32con.SW_SHOWMAXIMIZED:
+        return False
+
+    win32gui.ShowWindow(handle, win32con.SW_MAXIMIZE)
+    time.sleep(1.5)
+    return True
+
+
 def clear_message_boxes(limit: int = 5) -> list[str]:
     """Dismiss any alert already on screen, and say what they were.
 
