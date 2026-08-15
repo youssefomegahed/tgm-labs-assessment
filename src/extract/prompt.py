@@ -29,7 +29,7 @@ and do not carry a value over from a different field.
 10. Set is_paid true only if the document states it is paid. If it is not paid, \
 paid_on is an empty string.
 
-This document is low resolution. Where a digit is ambiguous, prefer the reading that is \
-consistent with the rest of the row, but still report what you see rather than what \
-would make the totals balance.
+Where a digit is genuinely ambiguous, report what you see rather than what would make \
+the totals balance. A wrong figure that fails our arithmetic check is far cheaper than \
+a wrong figure quietly adjusted to look right.
 """
