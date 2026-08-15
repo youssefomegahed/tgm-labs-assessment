@@ -15,19 +15,25 @@ Honest status, because the brief says the scope is bigger than the timebox.
 
 - Reading the order image. All 44 fields come back matching a hand-read ground truth
   exactly, and the five arithmetic checks pass.
-- Stage 1 of the brief: open a New Order, leave the proposed number alone, set the Date
-  and Cust.Ref., switch the price mode to Net, confirm VAT is With VAT.
-- Opening the Debtor selector from the Order using the correct upper icon rather than
-  the green plus below it.
+- Stage 1: open a New Order, leave the proposed number alone, set the Date and
+  Cust.Ref., switch the price mode to Net, confirm VAT is With VAT.
+- Opening the Debtor selector using the correct upper icon rather than the green plus.
+- Searching that selector and reading its results. The grid is invisible to UIA, so the
+  rows are read from a screenshot by a vision model. Verified on the empty case.
+- Cancelling into the creation branch, opening New Contact with the Order tab still
+  open behind it, and filling the Debtor: company, contact name, street, ZIP, city,
+  country, e-mail and telephone, each verified by reading the value back.
 - Getting Fakturama through its first-run dialog.
 
-**Not built yet:** the rest of stage 2 onwards. Debtor and Payment Method creation,
-Product and VAT resolution, item lines, saving the Order, and the linked Invoice. The
-matching rules those stages need are written and unit tested, but they are not yet
+**Not built yet:** assigning address roles, the second address our sample needs, the
+alias and payment method, saving the Debtor and re-selecting it from the Order. Then
+stages 3 to 5 entirely: Products, VAT, item lines, saving the Order, and the linked
+Invoice. The matching rules those stages need are written and unit tested but not yet
 wired to the UI.
 
-The largest open risk is the Items grid. It exposes no UIA table, so entering line
-items will probably need keyboard navigation rather than addressing cells directly.
+The largest open risk is the Items grid, which is drawn the same way the selector grids
+are. Reading it should work through the same vision fallback, but *entering* line items
+into it has no UIA path at all and will need keyboard navigation.
 
 ## What you need
 
