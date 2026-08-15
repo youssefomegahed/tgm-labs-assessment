@@ -152,43 +152,59 @@ def combo_items(element) -> list[str]:
         return []
 
 
-def select_combo(element, value: str, *, how_close=None, what: str = "dropdown") -> None:
+def select_combo(element, value: str, *, attempts: int = 3,
+                 what: str = "dropdown") -> None:
     """Pick an option by its exact text.
 
     Typing the value is not a safe fallback here. An SWT combo prefix-matches on every
     keystroke, so typing "Credit transfer" walks through several entries and can settle
     on a different one: this landed on "Standing agreement" before the read-back caught
     it. Expanding the list and clicking the matching item is the reliable route.
+
+    Retried, because a combo on a page SWT has only just built sometimes ignores the
+    first attempt and keeps its default. That showed up on the Country dropdown of a
+    second address added moments earlier, where the identical call had worked on the
+    first address.
     """
-    try:
-        element.select(value)
-        time.sleep(SETTLE)
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(0.6 * attempt)
+
+        try:
+            element.select(value)
+            time.sleep(SETTLE)
+            if read_value(element).strip() == value:
+                return
+        except Exception:
+            pass
+
+        offered = None
+        try:
+            element.expand()
+            time.sleep(SETTLE)
+            items = element.descendants(control_type="ListItem")
+            offered = [(item.element_info.name or "").strip() for item in items]
+
+            for item in items:
+                if (item.element_info.name or "").strip() == value:
+                    try:
+                        item.select()
+                    except Exception:
+                        item.click_input()
+                    time.sleep(SETTLE)
+                    break
+            else:
+                element.collapse()
+                # Not being offered at all is not a timing problem, so stop retrying.
+                raise VerificationFailed(
+                    what, value, f"not offered; options are {offered}"
+                )
+        except VerificationFailed:
+            raise
+        except Exception:
+            pass
+
         if read_value(element).strip() == value:
             return
-    except Exception:
-        pass
 
-    try:
-        element.expand()
-        time.sleep(SETTLE)
-        for item in element.descendants(control_type="ListItem"):
-            if (item.element_info.name or "").strip() == value:
-                try:
-                    item.select()
-                except Exception:
-                    item.click_input()
-                time.sleep(SETTLE)
-                break
-        else:
-            element.collapse()
-            raise VerificationFailed(
-                what, value, f"not offered; options are {combo_items(element)}"
-            )
-    except VerificationFailed:
-        raise
-    except Exception:
-        pass
-
-    actual = read_value(element).strip()
-    if actual != value:
-        raise VerificationFailed(what, value, actual)
+    raise VerificationFailed(what, value, read_value(element).strip())
