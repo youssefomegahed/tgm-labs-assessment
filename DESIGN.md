@@ -87,26 +87,43 @@ adjacent Edit. `Cust.Ref.`, `Street`, `ZIP`, `Value` and most of the Debtor and 
 forms are reachable this way. It survives the form being rearranged, because it depends
 on the label and the field staying together rather than on either one's position.
 
-**Third, a vision fallback, resolved at run time.** Some controls are icons with no
-text anywhere near them. The brief flags the worst case itself: beside Addresses there
-is an upper icon that opens the existing-contact selector and a lower green plus that
-starts a new Debtor, and clicking the wrong one silently sends the flow down the wrong
-branch. If UIA cannot name those, I screenshot the group, ask a vision model which icon
-is which, get a bounding box back and click its centre.
+**Third, ordering within a container.** Some controls are icons with no text anywhere
+near them. The brief flags the worst case itself: beside Addresses there is an upper
+icon that opens the existing-contact selector and a lower green plus that starts a new
+Debtor, and clicking the wrong one silently sends the flow down the wrong branch.
 
-That last one is still not a hardcoded coordinate. The coordinate is discovered from
-the current screen on the current run and thrown away afterwards. Nothing is stored, so
-moving or resizing the window changes the answer rather than breaking it. That is the
-distinction the brief is drawing, and I think it is the right one: the objection is to
-coordinates baked in ahead of time, not to ever computing one.
+I had planned a vision fallback for these, screenshotting the group and asking a model
+which icon is which. It turned out not to be needed. Those two icons are unnamed
+`Image` controls, but they are a tidy vertical stack in one column, 56 pixels apart, so
+sorting the unnamed images below the `Addresses` label by their top edge orders them
+unambiguously. Taking the first is the existing-contact selector. That is cheaper,
+deterministic, and has no API dependency.
 
-Resolved controls are cached per session under a semantic key, so the expensive
-strategies run once rather than once per interaction.
+Sorting by position is not the same as hardcoding a position. The rectangles are read
+off the live window on every run, so moving or resizing the form changes the answer
+rather than breaking it. Only the ordering is assumed, and the ordering is what the
+brief itself describes when it says "upper" and "lower".
 
-I expect the first two strategies to cover most of the surface and the third to be
-needed for a handful of icons. The exact split is the one thing here I cannot settle by
-reasoning, so I inspect the real tree before committing to it, and I would rather report
-that honestly than write a document that sounds more certain than I am.
+I have kept the vision fallback in the design as the answer for any control that is
+neither named nor positionally ordered, but so far nothing in the flow has needed it.
+
+### What the spike actually found
+
+I inspected the real tree before committing to any of this, and it changed three things.
+
+SWT copies a field's label into the field's accessible name, so `Edit 'Cust.Ref.'` is
+directly addressable and the second strategy is needed far less than I expected. It is
+still needed: `No.` and `Date` are anonymous Edits sitting to the right of named labels.
+
+Automation ids exist on almost every control, which looked promising until I noticed
+they are numeric handles like `328444`. They will not survive a restart, so they are
+deliberately never used as a key. Control type plus name is what stays put.
+
+And pywinauto's own `descendants()` hangs for minutes on Fakturama's main window, while
+walking the identical tree with `children()` covers all 171 nodes in 0.8 seconds. So
+the locator does its own bounded breadth-first walk. That one is a library problem
+rather than an application problem, but it would have sunk the whole approach if I had
+taken the slow path as evidence that UIA was unworkable here.
 
 ## Knowing each step worked
 

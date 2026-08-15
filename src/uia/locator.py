@@ -99,6 +99,66 @@ def find(root, timeout: float = DEFAULT_TIMEOUT, **criteria):
     return element
 
 
+def labelled(root, label: str, control_type: str = "Edit", max_gap: int = 500,
+             timeout: float = DEFAULT_TIMEOUT):
+    """The control that a Static label is pointing at.
+
+    SWT copies most field labels into the field's accessible name, but not all of them:
+    in the Order editor the No. and Date boxes are anonymous while their labels are
+    not. For those, find the label and take the nearest control of the wanted type to
+    its right on the same row.
+    """
+    anchor = find(root, control_type="Text", name=label, timeout=timeout)
+    box = anchor.rectangle()
+    middle = (box.top + box.bottom) / 2
+
+    best, best_gap = None, max_gap + 1
+    for element in iter_descendants(root):
+        if element.element_info.control_type != control_type:
+            continue
+        rect = element.rectangle()
+        if not (rect.top <= middle <= rect.bottom):
+            continue
+        gap = rect.left - box.right
+        if 0 <= gap < best_gap:
+            best, best_gap = element, gap
+
+    if best is None:
+        raise ControlNotFound(f"no {control_type} to the right of the {label!r} label")
+    return best
+
+
+def stacked_icons(root, anchor_label: str, control_type: str = "Image",
+                  timeout: float = DEFAULT_TIMEOUT) -> list:
+    """Un-named icons sitting in a column, ordered top to bottom.
+
+    The brief's sharpest trap is beside Addresses: the upper icon opens the
+    existing-contact selector and the lower green plus starts a new Debtor. Neither
+    carries a name, so neither can be found by property. They are, however, a tidy
+    vertical stack in one column, which orders them unambiguously.
+
+    Sorting by position is not the same as hardcoding a position. The coordinates are
+    read off the live window every time, so the rule survives the form moving or the
+    window being resized. Only the ordering is assumed.
+    """
+    anchor = find(root, control_type="Text", name=anchor_label, timeout=timeout)
+    box = anchor.rectangle()
+
+    icons = []
+    for element in iter_descendants(root):
+        if element.element_info.control_type != control_type:
+            continue
+        if (element.element_info.name or "").strip():
+            continue
+        rect = element.rectangle()
+        # Below the label, and starting no further left than it: the column the label
+        # heads, rather than icons belonging to some other part of the form.
+        if rect.top >= box.top and rect.left >= box.left - 20 and rect.left <= box.left + 200:
+            icons.append((rect.top, element))
+
+    return [element for _, element in sorted(icons, key=lambda pair: pair[0])]
+
+
 def wait_until(predicate, timeout: float = DEFAULT_TIMEOUT, description: str = "condition"):
     """Poll until the predicate returns something truthy, and hand that back."""
     deadline = time.monotonic() + timeout
