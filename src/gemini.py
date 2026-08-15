@@ -8,6 +8,7 @@ import json
 import os
 import time
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors as genai_errors
@@ -58,15 +59,27 @@ def generate_json(contents: list, schema: dict, *, what: str = "response") -> di
 
     api = client()
     for attempt in range(_MAX_ATTEMPTS):
+        last = attempt == _MAX_ATTEMPTS - 1
         try:
             response = api.models.generate_content(
                 model=model, contents=contents, config=config
             )
             break
         except genai_errors.APIError as exc:
-            if exc.code not in _RETRYABLE or attempt == _MAX_ATTEMPTS - 1:
+            if exc.code not in _RETRYABLE or last:
                 raise ExtractionError(
                     f"{model} failed reading {what} after {attempt + 1} attempts: {exc}"
+                ) from exc
+            time.sleep(min(2**attempt, _MAX_BACKOFF))
+        except httpx.TransportError as exc:
+            # DNS and connection failures arrive as raw transport errors rather than as
+            # an APIError with a status, so they slip past the check above. One turned up
+            # as "getaddrinfo failed" mid-run right after restarting Fakturama, and it
+            # cleared on its own. Worth waiting out for the same reason as a 503.
+            if last:
+                raise ExtractionError(
+                    f"could not reach {model} for {what} after {attempt + 1} "
+                    f"attempts: {exc!r}"
                 ) from exc
             time.sleep(min(2**attempt, _MAX_BACKOFF))
 
