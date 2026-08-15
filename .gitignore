@@ -7,3 +7,6 @@ __pycache__/
 
 # per-run output: logs, screenshots, extracted json
 runs/
+
+# working notes, not part of the deliverable
+NOTES.md
