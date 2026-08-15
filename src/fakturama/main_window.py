@@ -50,14 +50,28 @@ class MainWindow:
             raise KeyError(f"{entry!r} is not a navigation entry")
         find(self.window, control_type="Text", name=entry).click_input()
 
-    def open_tab(self, title: str) -> None:
-        actions.click(find(self.window, control_type="TabItem", name=title))
+    def focus_editor(self, title_contains: str) -> None:
+        """Bring an editor tab to the front.
 
-    def has_tab(self, title: str) -> bool:
+        Matched on a substring because an editor with unsaved changes shows a leading
+        asterisk: the Order tab is "New Order" until it is touched and "*New Order"
+        afterwards. The brief leans on this repeatedly, telling us to keep the Order open
+        and come back to it, and to return to the Debtor after creating a payment method.
+        """
+        actions.select_tab(
+            find(self.window, control_type="TabItem", contains=title_contains),
+            what=title_contains,
+        )
+
+    def open_tab(self, title: str) -> None:
+        actions.select_tab(find(self.window, control_type="TabItem", name=title),
+                           what=title)
+
+    def has_tab(self, title_contains: str) -> bool:
         from src.uia.locator import find_optional
 
-        return find_optional(self.window, control_type="TabItem", name=title,
-                             timeout=2) is not None
+        return find_optional(self.window, control_type="TabItem",
+                             contains=title_contains, timeout=2) is not None
 
     def save(self) -> None:
         """The toolbar Save, which the brief is careful to say is clicked exactly once."""
