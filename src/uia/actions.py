@@ -59,6 +59,66 @@ def click(element) -> None:
     time.sleep(SETTLE)
 
 
+def is_selected(element) -> bool:
+    try:
+        return bool(element.is_selected())
+    except Exception:
+        return False
+
+
+def display_scale() -> float:
+    """How many physical pixels there are per logical one, e.g. 2.0 at 200%."""
+    import ctypes
+
+    hdc = ctypes.windll.user32.GetDC(0)
+    try:
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+    finally:
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+    return (dpi or 96) / 96.0
+
+
+def select_tab(element, *, what: str = "tab") -> None:
+    """Switch to a tab, and make sure it actually switched.
+
+    Two problems stack up here.
+
+    Both invoke and select report success on SWT's tab items without changing the page,
+    which is the worst kind of failure: the caller then hunts for controls that were
+    never realized. So the selection state is checked afterwards rather than assumed,
+    which is the read-back rule applied to navigation instead of to a value.
+
+    And SWT reports tab item rectangles in logical coordinates while reporting every
+    other control in physical ones. On a scaled display that puts the rectangle at a
+    fraction of where the tab really is, so a plain click lands somewhere else
+    entirely. Scaling the rectangle back up is what makes the click land.
+    """
+    if is_selected(element):
+        return
+
+    try:
+        element.select()
+        time.sleep(0.8)
+        if is_selected(element):
+            return
+    except Exception:
+        pass
+
+    rect = element.rectangle()
+    scale = display_scale()
+    point = (int((rect.left + rect.width() / 2) * scale),
+             int((rect.top + rect.height() / 2) * scale))
+
+    from pywinauto import mouse
+
+    mouse.click(coords=point)
+    time.sleep(0.8)
+
+    if not is_selected(element):
+        raise VerificationFailed(f"{what} tab", "selected",
+                                 f"not selected after clicking {point}")
+
+
 def set_checkbox(element, want: bool, *, what: str = "checkbox") -> None:
     if is_checked(element) == want:
         return

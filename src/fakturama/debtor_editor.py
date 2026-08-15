@@ -53,8 +53,8 @@ class DebtorEditor:
     # --- addresses -----------------------------------------------------------
 
     def open_tab(self, title: str) -> None:
-        actions.click(find(self.window, control_type="TabItem", name=title))
-        time.sleep(0.5)
+        actions.select_tab(find(self.window, control_type="TabItem", name=title),
+                           what=title)
 
     def fill_address(self, address: Address, contact_email: str = "",
                      contact_phone: str = "") -> None:
@@ -100,16 +100,32 @@ class DebtorEditor:
 
     # --- miscellaneous and payment -------------------------------------------
 
-    def set_alias_and_discount(self, alias: str) -> None:
+    def set_miscellaneous(self, alias: str) -> None:
+        """Alias, a zero discount and Net pricing, all on the Miscellaneous tab.
+
+        The brief calls step 2.10 "open Payment", which reads like a tab. It is a field
+        on this same tab, next to Discount.
+        """
         self.open_tab("Miscellaneous")
-        element = find_optional(self.window, control_type="Edit", name="Alias name",
-                                timeout=5)
-        if element is not None and alias:
-            actions.set_text(element, alias, what="Alias name")
+
+        if alias:
+            actions.set_text(find(self.window, control_type="Edit", name="Alias name"),
+                             alias, what="Alias name")
+
+        actions.set_text(find(self.window, control_type="Edit", name="Discount"),
+                         "0%", what="Discount")
+        actions.select_combo(
+            find(self.window, control_type="ComboBox", name="Net or Gross"),
+            "Net", what="Net or Gross",
+        )
 
     def select_payment_method(self, method: str) -> bool:
-        """Choose the payment method, saying whether it was available at all."""
-        self.open_tab("Payment")
+        """Choose the payment method, saying whether it was available at all.
+
+        Returning False rather than raising is deliberate: a missing method is not an
+        error, it is the signal to go and create it and come back.
+        """
+        self.open_tab("Miscellaneous")
         combo = find_optional(self.window, control_type="ComboBox", name="Payment",
                               timeout=5)
         if combo is None:
