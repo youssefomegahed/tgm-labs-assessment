@@ -152,6 +152,58 @@ def combo_items(element) -> list[str]:
         return []
 
 
+def _open_list(element) -> bool:
+    """Open a dropdown's list, whichever way this one supports.
+
+    Fakturama's combos do not all implement ExpandCollapse. Several carry a child button
+    named "Open" instead, and for those `expand()` raises, which previously got swallowed
+    so the retry loop spun on a no-op three times and reported the value had not changed.
+    """
+    try:
+        element.expand()
+        time.sleep(SETTLE)
+        return True
+    except Exception:
+        pass
+
+    for child in element.children():
+        if (child.element_info.name or "").strip() == "Open":
+            child.click_input()
+            time.sleep(SETTLE * 2)
+            return True
+    return False
+
+
+def _pick_from_open_list(element, value: str) -> None:
+    """Choose `value` from an opened list.
+
+    Clicking a matching ListItem only works when that item is realized, and a country
+    list of a couple of hundred entries is virtualized, so most of them are not. Typing
+    into an *open* list is the reliable route: it runs the widget's own incremental
+    search and Enter commits it.
+
+    Typing into a *closed* combo is a different thing entirely and is not safe here.
+    It prefix-matches per keystroke and walks the selection, which is how "Credit
+    transfer" once landed on "Standing agreement".
+    """
+    if not _open_list(element):
+        raise LookupError("could not open the dropdown")
+
+    for item in element.descendants(control_type="ListItem"):
+        if (item.element_info.name or "").strip() == value:
+            try:
+                item.select()
+            except Exception:
+                item.click_input()
+            time.sleep(SETTLE)
+            return
+
+    element.type_keys(str(value), with_spaces=True, pause=0.03)
+    time.sleep(SETTLE)
+    element.type_keys("{ENTER}")
+    time.sleep(SETTLE)
+
+
 def select_combo(element, value: str, *, attempts: int = 3,
                  what: str = "dropdown") -> None:
     """Pick an option by its exact text.
@@ -189,27 +241,8 @@ def select_combo(element, value: str, *, attempts: int = 3,
         except Exception:
             pass
 
-        offered = None
         try:
-            element.expand()
-            time.sleep(SETTLE)
-            items = element.descendants(control_type="ListItem")
-            offered = [(item.element_info.name or "").strip() for item in items]
-
-            for item in items:
-                if (item.element_info.name or "").strip() == value:
-                    try:
-                        item.select()
-                    except Exception:
-                        item.click_input()
-                    time.sleep(SETTLE)
-                    break
-            else:
-                element.collapse()
-                # Not being offered at all is not a timing problem, so stop retrying.
-                raise VerificationFailed(
-                    what, value, f"not offered; options are {offered}"
-                )
+            _pick_from_open_list(element, value)
         except VerificationFailed:
             raise
         except Exception:
