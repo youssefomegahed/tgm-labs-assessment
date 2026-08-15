@@ -76,6 +76,41 @@ class MainWindow:
         return find_optional(self.window, control_type="TabItem",
                              contains=title_contains, timeout=2) is not None
 
+    def maximize_editor_area(self) -> None:
+        """Expand the editor stack to the full window.
+
+        The Debtor form is taller than the editor pane, and rows below the pane's edge
+        are half-real: value writes reach them, but clicks land on whatever is painted
+        there instead, which for the address type picker was the panel boundary. Rather
+        than scroll-into-view arithmetic, use Eclipse's own answer: the editor stack has
+        a Maximize button, and a maximized stack shows the whole form.
+        """
+        self._editor_stack_button("Maximize")
+
+    def restore_editor_area(self) -> None:
+        """Bring the bottom panel back, which verification reads later."""
+        self._editor_stack_button("Restore")
+
+    def _editor_stack_button(self, name: str) -> None:
+        from src.uia.locator import find_all
+
+        editors = find_all(self.window, control_type="TabItem")
+        if not editors:
+            return
+        # The editor stack's own toolbar sits level with the editor tabs, well above
+        # the bottom panel's copy of the same buttons.
+        top = min(tab.rectangle().top for tab in editors)
+
+        candidates = [
+            button for button in find_all(self.window, control_type="Button", name=name)
+            if abs(button.rectangle().top - top) < 300
+        ]
+        if candidates:
+            actions.click(min(candidates, key=lambda b: b.rectangle().top))
+            import time
+
+            time.sleep(1.0)
+
     def save(self) -> None:
         """The toolbar Save, which the brief is careful to say is clicked exactly once."""
         self.click_toolbar("save")

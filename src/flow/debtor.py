@@ -82,35 +82,43 @@ def _create(main_window, order: OrderData, log) -> None:
     editor = DebtorEditor(main_window)
     log(f"new Debtor editor open, proposed id {editor.customer_id!r}")
 
-    editor.set_names(debtor)
-    editor.open_tab("Addresses")
-    editor.fill_address(
-        debtor.billing,
-        contact_email=debtor.contact.email,
-        contact_phone=debtor.contact.phone,
-        company=debtor.company,
-    )
+    # The Debtor form is taller than the editor pane, and the rows below the pane's
+    # edge accept text but not clicks. Maximizing the editor makes the whole form real.
+    main_window.maximize_editor_area()
 
-    if debtor.delivery_is_billing:
-        # One address carrying both roles, which is the case the brief walks through.
-        editor.set_address_role(DebtorEditor.BOTH_ROLES)
-        log("billing and delivery match, main address carries both roles")
-    else:
-        editor.set_address_role(DebtorEditor.INVOICE_ROLE)
-        editor.add_address()
-        editor.fill_address(debtor.delivery)
-        editor.set_address_role(DebtorEditor.DELIVERY_ROLE)
-        log("delivery differs, added a second address for it")
-
-    editor.set_miscellaneous(debtor.alias)
-    if not editor.select_payment_method(order.payment.method):
-        raise ManualReviewRequired(
-            f"payment method {order.payment.method!r} is not offered even though it "
-            f"was resolved before this editor opened",
-            stage=STAGE,
+    try:
+        editor.set_names(debtor)
+        editor.open_tab("Addresses")
+        editor.fill_address(
+            debtor.billing,
+            contact_email=debtor.contact.email,
+            contact_phone=debtor.contact.phone,
+            company=debtor.company,
         )
-    log(f"payment method {order.payment.method!r} selected")
 
-    main_window.save()
-    time.sleep(3)
-    log("saved the Debtor once")
+        if debtor.delivery_is_billing:
+            # One address carrying both roles, the case the brief walks through.
+            editor.set_address_role(invoice=True, delivery=True)
+            log("billing and delivery match, main address carries both roles")
+        else:
+            editor.set_address_role(invoice=True, delivery=False)
+            editor.add_address()
+            editor.fill_address(debtor.delivery, company=debtor.company)
+            editor.set_address_role(invoice=False, delivery=True)
+            log("delivery differs, added a second address for it")
+
+        editor.set_miscellaneous(debtor.alias)
+        if not editor.select_payment_method(order.payment.method):
+            raise ManualReviewRequired(
+                f"payment method {order.payment.method!r} is not offered even though "
+                f"it was resolved before this editor opened",
+                stage=STAGE,
+            )
+        log(f"payment method {order.payment.method!r} selected")
+
+        main_window.save()
+        time.sleep(3)
+        log("saved the Debtor once")
+    finally:
+        # The bottom panel has to come back: selectors and verification live there.
+        main_window.restore_editor_area()

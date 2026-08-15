@@ -14,11 +14,6 @@ from src.uia.locator import find, find_optional, labelled
 class DebtorEditor:
     TAB = "New Debtor"
 
-    # Fakturama's own wording for the roles an address can carry.
-    INVOICE_ROLE = "invoice address"
-    DELIVERY_ROLE = "delivery address"
-    BOTH_ROLES = "invoice address;delivery address"
-
     def __init__(self, main_window):
         self.main = main_window
         self.window = main_window.window
@@ -95,10 +90,59 @@ class DebtorEditor:
             actions.set_text(find(self.window, control_type="Edit", name="Telephone"),
                              contact_phone, what="Telephone")
 
-    def set_address_role(self, role: str) -> None:
-        """Assign the Invoice and/or Delivery role to the address on screen."""
-        actions.set_text(labelled(self.window, "address type"), role,
-                         what="address type")
+    def set_address_role(self, *, invoice: bool, delivery: bool) -> None:
+        """Assign the roles the address on screen carries.
+
+        The address type field looks like an Edit but is not writable: any typed text
+        raises "The entry ... is invalid" on focus loss, whatever the wording. The real
+        control is the unnamed button beside it, which opens a small titleless native
+        popup holding two checkboxes, "Invoice address" and "Delivery address". Those
+        are set directly.
+        """
+        popup = self._open_role_popup()
+
+        for label, wanted in (("Invoice address", invoice),
+                              ("Delivery address", delivery)):
+            box = find(popup, control_type="CheckBox", name=label, timeout=10)
+            actions.set_checkbox(box, wanted, what=label)
+
+        popup.type_keys("{ESC}")
+        time.sleep(0.8)
+
+        # The field displays what was picked, which is the read-back for this control.
+        shown = actions.read_value(labelled(self.window, "address type")).casefold()
+        for label, wanted in (("invoice", invoice), ("delivery", delivery)):
+            if wanted and label not in shown:
+                from src.errors import VerificationFailed
+
+                raise VerificationFailed("address type", label, shown)
+
+    def _open_role_popup(self):
+        from src.uia import session
+        from src.uia.locator import find_optional, labelled_all, wait_until
+
+        field = labelled(self.window, "address type")
+        edge = field.rectangle().right
+
+        picker = next(
+            (button for button in
+             labelled_all(self.window, "address type", "Button", max_gap=2200)
+             if not (button.element_info.name or "").strip()
+             and abs(button.rectangle().left - edge) < 20),
+            None,
+        )
+        if picker is None:
+            raise LookupError("no picker button beside the address type field")
+        picker.click_input()
+
+        def appeared():
+            for candidate in session.message_boxes():
+                if find_optional(candidate, control_type="CheckBox",
+                                 name="Invoice address", timeout=0.5) is not None:
+                    return candidate
+            return None
+
+        return wait_until(appeared, timeout=15, description="the address role popup")
 
     def add_address(self) -> None:
         """The + beside the address tabs, for a delivery address that differs.
