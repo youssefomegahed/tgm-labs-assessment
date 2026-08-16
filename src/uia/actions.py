@@ -116,7 +116,25 @@ def click(element) -> None:
         element.invoke()
     except Exception:
         element.click_input()
+        park_pointer()
     time.sleep(SETTLE)
+
+
+def park_pointer() -> None:
+    """Move the pointer off whatever was just clicked.
+
+    Leaving it hovering keeps the tooltip up, and a tooltip is a real obstacle here: it
+    covers neighbouring controls so the next click lands on it instead, and the vision
+    layer captures whatever is painted, tooltip included. Fakturama's "Pick an item from
+    the list of all products" tip sat over the Items grid and broke the step after it.
+    """
+    try:
+        from pywinauto import mouse
+
+        mouse.move(coords=(4, 4))
+        time.sleep(0.3)
+    except Exception:
+        pass
 
 
 def is_selected(element) -> bool:
