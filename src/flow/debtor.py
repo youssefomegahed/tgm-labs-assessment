@@ -74,8 +74,7 @@ def _try_select(main_window, order: OrderData, log) -> bool:
         dialog.cancel()
         return False
 
-    dialog.select(rows.index(found))
-    dialog.ok()
+    dialog.choose(rows.index(found))
     time.sleep(2)
     log(f"selected candidate {found}")
 

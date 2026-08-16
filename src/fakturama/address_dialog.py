@@ -45,6 +45,43 @@ class AddressDialog:
         image = vision.capture_region(self._grid_box(), save_to)
         return vision.read_table(image, COLUMNS, what="the address selector")
 
+    def choose(self, row_index: int) -> None:
+        """Select a row and commit it, leaving the dialog closed.
+
+        Selecting and clicking OK does not work. OK reports itself enabled whether or
+        not a row is selected, so the click succeeds, the dialog closes and the Order is
+        left with no address, which reads exactly like a successful selection. This dialog
+        wants the row's default action instead: Enter, or a double click.
+
+        Row choice stays on the keyboard so it is exact; only the commit is a gesture.
+        """
+        self.select(row_index)
+
+        self.window.type_keys("{ENTER}")
+        time.sleep(1.5)
+        if not self.is_open(timeout=2):
+            return
+
+        # Enter did not take, so use the row's other default action. The y here is
+        # derived from the live grid rather than written down: one header's height in,
+        # plus the wanted row.
+        left, top, right, bottom = self._grid_box()
+        window = self.window.rectangle()
+        row_height = self._row_height()
+        y = top + row_height + int((row_index + 0.5) * row_height)
+        self.window.double_click_input(coords=(left + 200 - window.left,
+                                               y - window.top))
+        time.sleep(1.5)
+
+    def _row_height(self) -> int:
+        """Height of one grid row, taken from the search box rather than guessed.
+
+        Both are single-line controls laid out by the same widget toolkit at the same
+        font size, so the search box is a good proxy and it scales with the display,
+        which a hardcoded pixel count does not.
+        """
+        return max(labelled(self.window, "Search:").rectangle().height(), 24)
+
     def select(self, row_index: int) -> None:
         """Select a row by its position in what rows() returned.
 
