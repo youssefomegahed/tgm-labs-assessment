@@ -134,10 +134,13 @@ class SelectorDialog:
         ok = find(self.window, control_type="Button", name="OK").rectangle()
         return (dialog.left + 4, search.bottom + 4, dialog.right - 4, ok.top - 8)
 
-    def _row_height(self) -> int:
-        """One row's height, taken from the search box rather than guessed.
+    # A grid row in these dialogs is about 28 logical pixels tall. Kept in logical units
+    # and scaled at run time, so it holds on any display scaling. The search box is a
+    # poor proxy for this: it is a single-line control roughly two thirds the height of a
+    # grid row, and using it put the click on the header rather than the first row.
+    ROW_HEIGHT_LOGICAL = 28
 
-        Both are single-line controls from the same toolkit at the same font size, and
-        this scales with the display where a pixel count would not.
-        """
-        return max(labelled(self.window, "Search:").rectangle().height(), 24)
+    def _row_height(self) -> int:
+        from src.uia.actions import display_scale
+
+        return max(int(self.ROW_HEIGHT_LOGICAL * display_scale()), 24)
