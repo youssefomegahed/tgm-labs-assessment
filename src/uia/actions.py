@@ -6,7 +6,9 @@ being driven from outside, and a silent wrong value is the expensive kind of bug
 ends up saved in an invoice.
 """
 
+import re
 import time
+from decimal import Decimal, InvalidOperation
 
 from src.errors import VerificationFailed
 
@@ -29,6 +31,45 @@ def read_value(element) -> str:
         return (element.legacy_properties().get("Value") or "").strip()
     except Exception:
         return (element.window_text() or "").strip()
+
+
+_NUMERIC = re.compile(r"^[\s$€£]*-?[\d.,]+\s*[%]?$")
+
+
+def _as_number(text: str):
+    """The numeric meaning of a displayed value, or None if it is not a number."""
+    text = (text or "").strip()
+    if not _NUMERIC.match(text):
+        return None
+    digits = re.sub(r"[^\d.,-]", "", text)
+    if not digits:
+        return None
+    # Whichever separator comes last is the decimal point.
+    if "," in digits and "." in digits:
+        digits = digits.replace(".", "").replace(",", ".") \
+            if digits.rfind(",") > digits.rfind(".") else digits.replace(",", "")
+    elif "," in digits:
+        whole, _, frac = digits.rpartition(",")
+        digits = f"{whole}.{frac}" if len(frac) <= 2 else digits.replace(",", "")
+    try:
+        return Decimal(digits)
+    except InvalidOperation:
+        return None
+
+
+def _same_value(actual: str, wanted: str) -> bool:
+    """Did the field take the value, allowing for it reformatting the display?
+
+    Fakturama normalizes as it commits: "0" comes back "0%", "0.00" comes back "$0.00".
+    That is the widget accepting the value, not rejecting it, so comparing the numbers
+    keeps the check strict about meaning while ignoring presentation. Anything that is
+    not a number is still compared exactly.
+    """
+    if actual == wanted:
+        return True
+
+    actual_number, wanted_number = _as_number(actual), _as_number(wanted)
+    return actual_number is not None and actual_number == wanted_number
 
 
 def set_text(element, value: str, *, commit: bool = True, what: str = "field") -> None:
@@ -54,7 +95,7 @@ def set_text(element, value: str, *, commit: bool = True, what: str = "field") -
     time.sleep(SETTLE * 2 if commit else SETTLE)
 
     actual = read_value(element)
-    if actual != str(value):
+    if not _same_value(actual, str(value)):
         raise VerificationFailed(what, value, actual)
 
 
