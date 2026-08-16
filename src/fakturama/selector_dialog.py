@@ -72,12 +72,11 @@ class SelectorDialog:
         if self._closed_within(close_timeout):
             return
 
-        left, top, right, bottom = self._grid_box()
         window = self.window.rectangle()
         row_height = self._row_height()
-        y = top + row_height + int((row_index + 0.5) * row_height)
-        self.window.double_click_input(coords=(left + 200 - window.left,
-                                               y - window.top))
+        x, first_y = self._first_row_point()
+        y = first_y + row_index * row_height
+        self.window.double_click_input(coords=(x - window.left, y - window.top))
 
         if not self._closed_within(close_timeout):
             raise ManualReviewRequired(
@@ -96,24 +95,31 @@ class SelectorDialog:
         return False
 
     def select(self, row_index: int) -> None:
-        """Move the selection to a row without committing it.
+        """Move the selection to a row.
 
-        Keyboard, not a computed click: the grid is invisible to UIA so its row height
-        can only be guessed, and a wrong guess selects nothing while still letting the
-        dialog close.
+        The click has to land on a row, not merely inside the grid. Clicking the middle
+        of the grid box selects nothing when there are only one or two results, because
+        the middle is empty space below them, and then Home and Down have no selection to
+        move and Enter has nothing to commit. That failure is silent: the dialog looks
+        normal and simply never closes.
+
+        So click the first row, then let the keyboard walk down to the wanted one, which
+        keeps the row choice exact without needing to know where every row sits.
         """
-        left, top, right, bottom = self._grid_box()
         window = self.window.rectangle()
+        point = self._first_row_point()
+        self.window.click_input(coords=(point[0] - window.left, point[1] - window.top))
+        time.sleep(0.6)
 
-        self.window.click_input(coords=(left + 120 - window.left,
-                                        top + (bottom - top) // 2 - window.top))
-        time.sleep(0.4)
-
-        self.window.type_keys("{HOME}")
-        time.sleep(0.3)
         if row_index:
             self.window.type_keys("{DOWN}" * row_index)
-            time.sleep(0.3)
+            time.sleep(0.4)
+
+    def _first_row_point(self) -> tuple[int, int]:
+        """Middle of the first data row, one header's height below the grid top."""
+        left, top, right, bottom = self._grid_box()
+        row_height = self._row_height()
+        return (left + 200, top + row_height + row_height // 2)
 
     def ok(self) -> None:
         actions.click(find(self.window, control_type="Button", name="OK"))
