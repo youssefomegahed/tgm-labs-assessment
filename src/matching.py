@@ -41,7 +41,12 @@ def cell_matches(cell: str, expected: str) -> bool:
 
 
 def debtor_matches(row: dict, debtor: Debtor) -> bool:
-    """The five columns the brief names, all of them."""
+    """The five columns the brief names, all of them.
+
+    Correct only when the debtor has a single address. Kept because it is the brief's
+    stated rule and it is the right test for that case, but the selector is not a list
+    of debtors, so see debtor_candidate below for what the flow actually uses.
+    """
     return (
         cell_matches(row.get("Company", ""), debtor.company)
         and cell_matches(row.get("First Name", ""), debtor.contact.first_name)
@@ -49,6 +54,49 @@ def debtor_matches(row: dict, debtor: Debtor) -> bool:
         and cell_matches(row.get("ZIP", ""), debtor.billing.zip_code)
         and cell_matches(row.get("City", ""), debtor.billing.city)
     )
+
+
+def debtor_candidate(row: dict, debtor: Debtor) -> bool:
+    """Could this row be our person? Names only.
+
+    The selector lists one row per address rather than per debtor. A debtor with a
+    separate delivery address surfaces as its delivery row, which carries a different
+    postcode and no company at all, so the brief's five-column rule can never match it
+    and the flow goes off and creates a duplicate.
+
+    The contact name is the part that stays put across a debtor's addresses, so it is
+    what narrows the list. Everything else is checked after selecting, against the
+    invoice address the Order then populates, which is authoritative in a way a clipped
+    grid cell is not. Strictness is not lost, it moves to where the data is reliable.
+    """
+    return (
+        cell_matches(row.get("First Name", ""), debtor.contact.first_name)
+        and cell_matches(row.get("Name", ""), debtor.contact.last_name)
+    )
+
+
+def missing_from_address_block(block: str, debtor: Debtor) -> list[str]:
+    """Which expected details are absent from a populated address block.
+
+    Fakturama renders the selected debtor's invoice address as free text, so this
+    checks by containment rather than by field. An empty list means everything the
+    source document specifies is present.
+    """
+    haystack = re.sub(r"\s+", " ", block or "").casefold()
+
+    expected = {
+        "company": debtor.company,
+        "first name": debtor.contact.first_name,
+        "last name": debtor.contact.last_name,
+        "street": debtor.billing.street,
+        "zip": debtor.billing.zip_code,
+        "city": debtor.billing.city,
+    }
+    return [
+        f"{label} ({value})"
+        for label, value in expected.items()
+        if value and re.sub(r"\s+", " ", value).casefold() not in haystack
+    ]
 
 
 def product_matches(row: dict, sku: str) -> bool:

@@ -39,6 +39,17 @@ class OrderEditor:
     def order_date(self) -> str:
         return actions.read_value(labelled(self.window, "Date"))
 
+    @property
+    def address_block(self) -> str:
+        """The address text the Order shows for the selected Debtor.
+
+        This is what the brief means by confirming the populated Invoice address, and
+        it is the authoritative check after a selection: it comes from the saved record
+        rather than from a grid cell that may be clipped or showing a different address.
+        """
+        block = labelled(self.window, "Addresses", control_type="Edit", max_gap=200)
+        return actions.read_value(block)
+
     def totals(self) -> dict[str, str]:
         """What the editor currently believes the document comes to.
 

@@ -17,7 +17,7 @@ from src.fakturama.address_dialog import AddressDialog
 from src.fakturama.debtor_editor import DebtorEditor
 from src.fakturama.order_editor import OrderEditor
 from src.fakturama.payment_editor import PaymentEditor
-from src.matching import debtor_matches, resolve_one
+from src.matching import debtor_candidate, missing_from_address_block, resolve_one
 from src.models import OrderData
 
 STAGE = "debtor"
@@ -57,13 +57,17 @@ def _try_select(main_window, order: OrderData, log) -> bool:
     OrderEditor(main_window).open_address_selector()
 
     dialog = AddressDialog()
-    dialog.search(order.debtor.company)
+    # Search by surname rather than company: the delivery row of a multi-address debtor
+    # carries no company at all, so a company search cannot surface it.
+    dialog.search(order.debtor.contact.last_name)
     rows = dialog.rows()
     log(f"address selector returned {len(rows)} row(s)")
 
     found = resolve_one(
-        rows, lambda row: debtor_matches(row, order.debtor),
-        what=f"Debtor {order.debtor.company!r}", stage=STAGE,
+        rows, lambda row: debtor_candidate(row, order.debtor),
+        what=f"Debtor {order.debtor.contact.first_name} "
+             f"{order.debtor.contact.last_name}",
+        stage=STAGE,
     )
 
     if found is None:
@@ -72,8 +76,21 @@ def _try_select(main_window, order: OrderData, log) -> bool:
 
     dialog.select(rows.index(found))
     dialog.ok()
-    time.sleep(1)
-    log(f"selected {found}")
+    time.sleep(2)
+    log(f"selected candidate {found}")
+
+    # The name got us here; the address the Order now shows is what confirms it really
+    # is our customer. Anything missing means we picked the wrong person.
+    block = OrderEditor(main_window).address_block
+    missing = missing_from_address_block(block, order.debtor)
+    if missing:
+        raise ManualReviewRequired(
+            "the selected Debtor's invoice address does not match the document. "
+            f"Missing: {', '.join(missing)}. Address shown: {block!r}",
+            stage=STAGE,
+        )
+
+    log("invoice address matches the document")
     return True
 
 
