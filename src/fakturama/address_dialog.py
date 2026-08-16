@@ -46,13 +46,30 @@ class AddressDialog:
         return vision.read_table(image, COLUMNS, what="the address selector")
 
     def select(self, row_index: int) -> None:
-        """Click a row by its position in what rows() returned."""
+        """Select a row by its position in what rows() returned.
+
+        Navigated by keyboard rather than by clicking a computed y coordinate. The grid
+        is invisible to UIA, so its row height can only be guessed, and a guess that is
+        wrong selects nothing while still letting OK close the dialog. The flow then
+        carries on believing it picked a customer it never picked.
+
+        One click puts focus in the grid, Home takes it to the first row whichever row
+        that click happened to land on, and Down steps to the wanted one.
+        """
         left, top, right, bottom = self._grid_box()
-        header, row_height = 34, 34  # measured off the live grid below
-        y = top + header + int((row_index + 0.5) * row_height)
-        self.window.click_input(coords=(left + 120 - self.window.rectangle().left,
-                                        y - self.window.rectangle().top))
+        window = self.window.rectangle()
+
+        # Anywhere in the grid body will do: the click is only for focus, and the
+        # keyboard decides which row ends up selected.
+        self.window.click_input(coords=(left + 120 - window.left,
+                                        top + (bottom - top) // 2 - window.top))
         time.sleep(0.4)
+
+        self.window.type_keys("{HOME}")
+        time.sleep(0.3)
+        if row_index:
+            self.window.type_keys("{DOWN}" * row_index)
+            time.sleep(0.3)
 
     def ok(self) -> None:
         actions.click(find(self.window, control_type="Button", name="OK"))
