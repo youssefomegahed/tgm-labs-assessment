@@ -22,16 +22,36 @@ Debtor with its billing address and a separate warehouse delivery address and th
 right role on each, select the payment method, save once, then return to the still-open
 Order, find the Debtor, select it, and confirm the populated invoice address matches
 the source document field by field.
+- Stage 3, product resolution: search the product selector by SKU, take the creation
+branch when nothing matches, resolve the line's VAT rate first so the product form can
+offer it, create the Product with the gross price calculated from the net price and the
+rate, save, then re-select it onto the Order. Both branches are exercised by the sample,
+which needs one product created and one selected.
 - Getting Fakturama through its first-run dialog, and seeding the default Shipping
 record it needs before any Order will open.
 
-**Not built yet:** stages 3 to 5. Products and VAT rates, the Order item lines, saving
-and verifying the Order, and the linked Invoice with its payment status. The matching
-rules those stages need are written and unit tested but not yet wired to the UI.
+After a full run the Order holds both lines with the right unit prices and VAT rates:
 
-The largest open risk is the Items grid. Like the selector grids it is drawn rather than
-exposed to UIA, so reading it should work through the same vision fallback, but
-*entering* line items into it has no UIA path at all and will need keyboard navigation.
+```
+1  1.00  Ergonomic Des...   VAT 19%  $250.00  $250.00
+2  1.00  Anti-Fatigue D...  VAT 19%   $40.00   $40.00
+                            Total Net $290.00  VAT $55.10  Total $345.10
+```
+
+**Written but not verified:** `src/fakturama/order_items.py`, which sets the quantity and
+discount on each line. Quantities above still read 1.00 and line 1's 10% discount is not
+applied, so the totals are not yet the document's 570.00 net. This is the only module in
+`src/fakturama/` that has not been run against Fakturama, and its docstring lists the
+assumptions a probe should check first.
+
+**Not built:** stage 4, saving and verifying the Order, and stage 5, the linked Invoice
+with its payment status.
+
+The reason line entry is last and hardest: the Items grid has no UIA representation at
+all. A tree dump of the Order editor returns zero Tables, zero DataItems and zero Lists.
+Products reach it by being selected in a dialog, which works, but editing the values it
+then shows has no property-based route and needs click-plus-keyboard navigation with the
+result read back visually.
 
 ## What you need
 
@@ -151,7 +171,9 @@ src/gemini.py        the only file that knows which model provider is used
 src/vision.py        reading grids that Fakturama draws and UIA cannot see
 src/uia/             generic Windows plumbing, knows nothing about Fakturama
 src/fakturama/       one class per editor or dialog, hides every locator
-src/flow/            the brief's five stages (in progress)
+                     selector_dialog.py is shared by the address and product pickers
+                     order_items.py is written but not yet verified
+src/flow/            the brief's stages: order, debtor, products (4 and 5 to come)
 tools/               first-run setup, shipping seeder, and a UIA tree inspector
 scripts/             environment setup
 ```

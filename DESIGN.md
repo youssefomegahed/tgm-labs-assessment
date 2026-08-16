@@ -146,6 +146,25 @@ duplicate. And the application is pinned above other windows for the duration of
 because a console appears with every remote command and would otherwise land in the
 captures.
 
+
+### Reading a drawn grid is solvable; writing to one is not, the same way
+
+Reading works because a screenshot contains everything a row has. Writing does not have
+an equivalent: there is no property to set, no cell to address, and no way to confirm a
+value except by looking again.
+
+So line entry is the one place the design falls back to driving the widget the way a
+person does. Click a row to give the grid focus and a current cell, move between cells
+with the keyboard rather than computing a coordinate per column, and read the result back
+from a capture. Only the row's vertical position comes from geometry; the column comes
+from counting Tab presses, which avoids depending on column widths, and matters because
+the Discount column is hidden entirely until the editor is maximized.
+
+I would rather be plain that this is the weakest part of the approach. Everything else
+either asks the application what is there or verifies that it accepted a value. This asks
+neither, so it leans hardest on the read-back afterwards, and it is the piece I would
+test first against a second document.
+
 ## Knowing each step worked
 
 This is the hardest part of automating this application, and the part most of the design
