@@ -31,7 +31,16 @@ def read_value(element) -> str:
         return (element.window_text() or "").strip()
 
 
-def set_text(element, value: str, *, what: str = "field") -> None:
+def set_text(element, value: str, *, commit: bool = True, what: str = "field") -> None:
+    """Write a value, let the widget commit it, then check it stuck.
+
+    The commit matters. Several fields here hold text happily while focused and discard
+    it the moment focus leaves: the Debtor's Company was written, read back correctly,
+    and then saved empty. Reading back before the field has committed proves only that
+    the characters arrived, not that the application accepted them.
+
+    Pass commit=False for a field where moving focus would do something unwanted.
+    """
     element.set_focus()
     try:
         element.set_edit_text(value)
@@ -40,7 +49,10 @@ def set_text(element, value: str, *, what: str = "field") -> None:
         element.type_keys("^a{BACKSPACE}", pause=0.02)
         element.type_keys(str(value), with_spaces=True, pause=0.02)
 
-    time.sleep(SETTLE)
+    if commit:
+        element.type_keys("{TAB}")
+    time.sleep(SETTLE * 2 if commit else SETTLE)
+
     actual = read_value(element)
     if actual != str(value):
         raise VerificationFailed(what, value, actual)
