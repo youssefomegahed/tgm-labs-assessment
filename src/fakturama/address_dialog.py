@@ -37,7 +37,10 @@ class AddressDialog:
         result. wait_stable is what the brief means by waiting for the list to
         stabilize: keep looking until the picture stops changing.
         """
-        actions.set_text(labelled(self.window, "Search:"), term, what="address search")
+        # No tab commit here: the search box filters as you type and empties when focus
+        # leaves it, so committing would clear the very term we just entered.
+        actions.set_text(labelled(self.window, "Search:"), term, commit=False,
+                         what="address search")
         wait_stable(lambda: len(vision.capture_region(self._grid_box())), settle=3)
 
     def rows(self, save_to: str | None = None) -> list[dict]:
