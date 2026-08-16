@@ -13,8 +13,9 @@ the way if they are missing.
 
 All five stages are implemented and have run end to end against the live application in
 one continuous session, ending with Invoice INV000001 saved as paid beside its still-open
-Order PO000005. [docs/screenshots](docs/screenshots) is the annotated evidence from that
-run.
+Order PO000005. [docs/screenshots](docs/screenshots) holds the annotated evidence, and
+says under each image which run it came from: three are from that continuous run, and one
+is the Debtor existence check captured separately against the live application.
 
 **Verified end to end, from the extraction through to a saved, paid Invoice:**
 
@@ -177,11 +178,12 @@ which recreates the "Free of shipping costs" default the brief expects anyway.
 C:\dev\venv\Scripts\python.exe -m pytest
 ```
 
-97 tests covering number and date parsing, the exact-match and candidate rules, the
+101 tests covering number and date parsing, the exact-match and candidate rules, the
 arithmetic validation, the blank-capture guard, how a committed value is compared against
-what was written, reading amounts back across currency locales, and the Items grid's
-column detection against a real capture of it. None of them need Windows or an API key,
-so they also run on a Mac.
+what was written, reading amounts back across currency locales, and the two pixel reads
+of the drawn grids, each against a real capture: the Items grid's column detection, and
+the rule under a selector's column header that a row click has to be aimed below. None of
+them need Windows or an API key, so they also run on a Mac.
 
 Three further tests call the model and compare its reading of `data/order.png` against
 the ground truth field by field. They are opt-in because they cost API calls:
@@ -208,7 +210,7 @@ src/fakturama/          one class per editor or dialog, hides every locator
 src/flow/               the brief's five stages
 tools/                  first-run setup, shipping seeder, and a UIA tree inspector
 scripts/                environment setup
-docs/screenshots/       annotated evidence of a run
+docs/screenshots/       annotated evidence, with each image's provenance
 ```
 
 The layering rule is that no layer knows about the one two below it. `flow/` never makes
