@@ -1,152 +1,202 @@
 """The selector dialogs opened from an Order: "Select the address" and "Select a product".
 
-They are the same widget with a different title and different columns, so the awkward
-parts live here once. Those parts are:
+Driven without UIA, deliberately. These modals are the one surface where UIA traversal
+intermittently wedges Fakturama's whole UI thread under emulation: win32 sees the window,
+every UIA query times out, and input queued during the wedge replays when the automation
+process dies, so selections appear to happen on their own. Three separate sessions died
+to three different symptoms of that one cause.
 
-- the results grid is drawn by the application and invisible to UIA, so rows are read
-  from a screen capture rather than from the tree
-- OK reports itself enabled whether or not a row is selected, so clicking it commits
-  nothing while looking like success. Rows are committed with their default action
-  instead
-- the search box filters as you type and empties when focus leaves it, so it must not be
-  tab-committed
+So this class speaks only win32, screenshots, the vision grounder and the raw keyboard:
 
-This is shared because it is one widget. The resolve-or-create flows built on top of it
-stay separate per entity, because those differ in every meaningful way.
+- the window comes from EnumWindows and its geometry from GetWindowRect
+- the search box is grounded from the "Search:" label on a capture, once per open
+- rows are read from captures, as they always were, the grid being drawn anyway
+- a row is chosen by clicking it and committing with Enter; Escape cancels; WM_CLOSE
+  is the last resort, being what the title-bar X sends
+
+Every coordinate is derived from the live window on the current run.
 """
 
 import time
 
 from src import vision
 from src.errors import ManualReviewRequired
-from src.uia import actions, session
-from src.uia.locator import find, labelled, wait_stable
+from src.uia import session
+
+
+class SelectorClosedEarly(Exception):
+    """The dialog vanished before we finished with it.
+
+    Not necessarily a failure: the product selector commits itself when the search
+    narrows to a single exact match, taking the row with it. The caller decides by
+    checking whether the Order actually gained a line.
+    """
 
 
 class SelectorDialog:
     TITLE = ""
     COLUMNS: list[str] = []
 
-    def __init__(self, window=None, timeout: float = 30.0):
-        self.window = window or session.find_dialog(self.TITLE, timeout=timeout)
+    def __init__(self, timeout: float = 30.0):
+        self.handle = session.find_dialog_handle(self.TITLE, timeout=timeout)
+        time.sleep(1.5)  # let the dialog finish building before we look at it
+        self._search_box: tuple[int, int, int, int] | None = None
+
+    # --- win32 basics ---------------------------------------------------------
 
     @classmethod
     def is_open(cls, timeout: float = 2.0) -> bool:
-        try:
-            session.find_dialog(cls.TITLE, timeout=timeout)
-            return True
-        except Exception:
-            return False
+        deadline = time.monotonic() + timeout
+        while True:
+            if session.dialog_exists(cls.TITLE):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.3)
 
-    # --- reading --------------------------------------------------------------
+    def rect(self) -> tuple[int, int, int, int]:
+        import win32gui
+
+        try:
+            return win32gui.GetWindowRect(self.handle)
+        except Exception as exc:
+            raise SelectorClosedEarly(f"{self.TITLE} is no longer open") from exc
+
+    # --- searching ------------------------------------------------------------
 
     def search(self, term: str) -> None:
-        """Type into the search box and let the grid settle.
+        """Click into the search box, type the term, let the grid settle."""
+        from pywinauto import keyboard, mouse
 
-        The list filters as you type, so reading it too early gets a half-filtered
-        result. Waiting for the picture to stop changing is what the brief means by
-        waiting for the list to stabilize.
-        """
-        actions.set_text(labelled(self.window, "Search:"), term, commit=False,
-                         what=f"{self.TITLE} search")
+        label = self._find_search_label()
+        # The input sits immediately right of the label and is a few hundred px wide.
+        x = label[2] + 60
+        y = (label[1] + label[3]) // 2
+
+        mouse.click(coords=(x, y))
+        time.sleep(0.5)
+        keyboard.send_keys("^a{BACKSPACE}", pause=0.05)
+        keyboard.send_keys(term, with_spaces=True, pause=0.05)
+
+        from src.uia.locator import wait_stable
+
         wait_stable(lambda: len(vision.capture_region(self._grid_box())), settle=3)
 
     def rows(self, save_to: str | None = None) -> list[dict]:
         image = vision.capture_region(self._grid_box(), save_to)
         return vision.read_table(image, self.COLUMNS, what=self.TITLE)
 
-    # --- choosing -------------------------------------------------------------
+    # --- choosing and leaving -------------------------------------------------
 
     def choose(self, row_index: int, close_timeout: float = 12.0) -> None:
         """Select a row and commit it, leaving the dialog closed.
 
-        The wait for the dialog to disappear is generous on purpose. Committing is not
-        instant, and double-clicking a dialog that is already closing throws inside
-        Fakturama: it logs "Internal Error in: com.sebulli.fakturama.dialogs.Sele..."
-        and, worse, abandons the commit, so the Order gains no line while the automation
-        believes a product was chosen. Only fall back once it is genuinely still open.
+        The click is verified, not assumed. Row geometry derived from the grounded
+        label jitters a few pixels between runs, and a click that lands on empty grid
+        selects nothing while looking identical from outside. So after each candidate
+        click the grid is captured and the local pixel detector confirms a highlight
+        exists before anything is committed. Once any row is selected, Home and Down
+        make the row choice exact regardless of which row the click hit.
         """
-        self.select(row_index)
+        from pywinauto import keyboard, mouse
 
-        self.window.type_keys("{ENTER}")
+        grid = self._grid_box()
+        x = grid[0] + 200
+
+        # Walk candidate heights until a click demonstrably changes a row: whatever
+        # colour selection takes here, the clicked row is where pixels changed.
+        selected_centre = None
+        for offset in (60, 45, 80, 95, 110, 130):
+            before = vision.capture_region(grid)
+            mouse.click(coords=(x, grid[1] + offset))
+            time.sleep(0.5)
+            after = vision.capture_region(grid)
+            selected_centre = vision.changed_row_center(before, after)
+            if selected_centre is not None:
+                break
+        if selected_centre is None:
+            raise ManualReviewRequired(
+                f"could not select any row in {self.TITLE}", stage="selector"
+            )
+
+        # A selection exists, so Home reliably moves it to the first row.
+        keyboard.send_keys("{HOME}")
+        time.sleep(0.4)
+        if row_index:
+            keyboard.send_keys("{DOWN}" * row_index, pause=0.15)
+            time.sleep(0.4)
+
+        keyboard.send_keys("{ENTER}")
         if self._closed_within(close_timeout):
             return
 
-        window = self.window.rectangle()
-        row_height = self._row_height()
-        x, first_y = self._first_row_point()
-        y = first_y + row_index * row_height
-        self.window.double_click_input(coords=(x - window.left, y - window.top))
+        # Enter did not commit; double-click exactly where the selection landed.
+        mouse.double_click(coords=(x, grid[1] + selected_centre))
+        if self._closed_within(close_timeout):
+            return
 
-        if not self._closed_within(close_timeout):
-            raise ManualReviewRequired(
-                f"{self.TITLE} would not close after selecting row {row_index}",
-                stage="selector",
-            )
+        raise ManualReviewRequired(
+            f"{self.TITLE} would not close after choosing row {row_index}",
+            stage="selector",
+        )
+
+    def cancel(self) -> None:
+        """Escape first; WM_CLOSE if the dialog lingers. Never a click on OK."""
+        from pywinauto import keyboard
+
+        keyboard.send_keys("{ESC}")
+        if self._closed_within(4.0):
+            return
+
+        import win32con
+        import win32gui
+
+        win32gui.PostMessage(self.handle, win32con.WM_CLOSE, 0, 0)
+        self._closed_within(4.0)
 
     def _closed_within(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if not self.is_open(timeout=0.5):
-                # It has gone; give the editor behind it a moment to take the value.
-                time.sleep(1.5)
+            if not session.dialog_exists(self.TITLE):
+                time.sleep(1.5)  # give the editor behind it a moment to take the value
                 return True
             time.sleep(0.5)
         return False
 
-    def select(self, row_index: int) -> None:
-        """Move the selection to a row.
+    # --- geometry, grounded on the live window ---------------------------------
 
-        The click has to land on a row, not merely inside the grid. Clicking the middle
-        of the grid box selects nothing when there are only one or two results, because
-        the middle is empty space below them, and then Home and Down have no selection to
-        move and Enter has nothing to commit. That failure is silent: the dialog looks
-        normal and simply never closes.
+    def _find_search_label(self) -> tuple[int, int, int, int]:
+        """Where "Search:" is painted, in screen coordinates, grounded once per open."""
+        if self._search_box is not None:
+            return self._search_box
 
-        So click the first row, then let the keyboard walk down to the wanted one, which
-        keeps the row choice exact without needing to know where every row sits.
-        """
-        window = self.window.rectangle()
-        point = self._first_row_point()
-        self.window.click_input(coords=(point[0] - window.left, point[1] - window.top))
-        time.sleep(0.6)
-
-        if row_index:
-            self.window.type_keys("{DOWN}" * row_index)
-            time.sleep(0.4)
-
-    def _first_row_point(self) -> tuple[int, int]:
-        """Middle of the first data row, one header's height below the grid top."""
-        left, top, right, bottom = self._grid_box()
-        row_height = self._row_height()
-        return (left + 200, top + row_height + row_height // 2)
-
-    def ok(self) -> None:
-        actions.click(find(self.window, control_type="Button", name="OK"))
-
-    def cancel(self) -> None:
-        actions.click(find(self.window, control_type="Button", name="Cancel"))
-
-    # --- internals ------------------------------------------------------------
+        left, top, right, bottom = self.rect()
+        # The search row lives in the dialog's top strip.
+        strip = (left, top, right, top + max(160, (bottom - top) // 6))
+        boxes = vision.ground_boxes(vision.capture_region(strip), ["Search:"],
+                                    what=f"the {self.TITLE} search row")
+        if "Search:" not in boxes:
+            raise ManualReviewRequired(
+                f"could not locate the search box in {self.TITLE}",
+                stage="selector",
+            )
+        x1, y1, x2, y2 = boxes["Search:"]
+        self._search_box = (strip[0] + x1, strip[1] + y1, strip[0] + x2, strip[1] + y2)
+        return self._search_box
 
     def _grid_box(self) -> tuple[int, int, int, int]:
-        """The results grid: everything between the search row and the buttons.
-
-        Derived from live control positions rather than written down, so it follows the
-        dialog when it moves or resizes.
-        """
-        dialog = self.window.rectangle()
-        search = labelled(self.window, "Search:").rectangle()
-        ok = find(self.window, control_type="Button", name="OK").rectangle()
-        return (dialog.left + 4, search.bottom + 4, dialog.right - 4, ok.top - 8)
-
-    # A grid row in these dialogs is about 28 logical pixels tall. Kept in logical units
-    # and scaled at run time, so it holds on any display scaling. The search box is a
-    # poor proxy for this: it is a single-line control roughly two thirds the height of a
-    # grid row, and using it put the click on the header rather than the first row.
-    ROW_HEIGHT_LOGICAL = 28
+        """The results grid: below the search row, above the button strip."""
+        left, top, right, bottom = self.rect()
+        label = self._find_search_label()
+        return (left + 6, label[3] + 8, right - 6, bottom - 70)
 
     def _row_height(self) -> int:
-        from src.uia.actions import display_scale
+        """A row is a single line of the same text the search label uses."""
+        label = self._find_search_label()
+        return max((label[3] - label[1]) * 2, 24)
 
-        return max(int(self.ROW_HEIGHT_LOGICAL * display_scale()), 24)
+    def _row_point(self, row_index: int) -> tuple[int, int]:
+        """Middle of a data row: one header down from the grid top, then N rows."""
+        left, top, right, bottom = self._grid_box()
+        row_height = self._row_height()
+        return (left + 200, top + row_height + int((row_index + 0.5) * row_height))

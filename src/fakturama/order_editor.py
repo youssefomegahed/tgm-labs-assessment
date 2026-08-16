@@ -164,7 +164,6 @@ class OrderEditor:
                 f"expected two icons beside Addresses, found {len(icons)}"
             )
         icons[0].click_input()
-        actions.park_pointer()
 
     def open_product_selector(self) -> None:
         """The upper icon beside Items, not the green plus below it."""
@@ -172,7 +171,6 @@ class OrderEditor:
         if not icons:
             raise LookupError("no icons found beside Items")
         icons[0].click_input()
-        actions.park_pointer()
 
     # --- internals -----------------------------------------------------------
 

@@ -83,27 +83,47 @@ def set_text(element, value: str, *, commit: bool = True, keystrokes: bool = Fal
 
     Pass commit=False for a field where moving focus would do something unwanted.
     """
-    element.set_focus()
-    if keystrokes:
-        # Some fields accept the value pattern without acting on it: the text lands,
-        # nothing raises, and the widget commits its previous value. Those need real
-        # typing, which is indistinguishable to the widget from a person at a keyboard.
-        element.type_keys("^a{BACKSPACE}", pause=0.05)
-        element.type_keys(str(value), with_spaces=True, pause=0.05)
-    else:
-        try:
-            element.set_edit_text(value)
-        except Exception:
-            element.type_keys("^a{BACKSPACE}", pause=0.02)
-            element.type_keys(str(value), with_spaces=True, pause=0.02)
+    # Two ways in, tried in order. The value pattern is fast but some fields ignore it
+    # outright and others ignore it intermittently, always without raising, so a failed
+    # read-back escalates to real typing rather than straight to an error. Real
+    # keystrokes are indistinguishable to the widget from a person at a keyboard.
+    methods = ("keys", "keys") if keystrokes else ("pattern", "keys")
 
-    if commit:
-        element.type_keys("{TAB}")
-    time.sleep(SETTLE * 2 if commit else SETTLE)
+    actual = ""
+    for method in methods:
+        element.set_focus()
+        time.sleep(0.2)
 
-    actual = read_value(element)
-    if not _same_value(actual, str(value)):
-        raise VerificationFailed(what, value, actual)
+        if method == "pattern":
+            try:
+                element.set_edit_text(value)
+            except Exception:
+                continue
+        else:
+            try:
+                element.type_keys("^a{BACKSPACE}", pause=0.05)
+                element.type_keys(str(value), with_spaces=True, pause=0.05)
+            except Exception:
+                # pywinauto refuses type_keys on elements it deems invisible, and its
+                # judgement is wrong for some SWT edits that are plainly on screen. A
+                # real click has no such gate and puts focus where the keys must go,
+                # and send_keys types to the focus without inspecting the element.
+                from pywinauto import keyboard
+
+                element.click_input()
+                time.sleep(0.3)
+                keyboard.send_keys("^a{BACKSPACE}", pause=0.05)
+                keyboard.send_keys(str(value), with_spaces=True, pause=0.05)
+
+        if commit:
+            element.type_keys("{TAB}")
+        time.sleep(SETTLE * 2 if commit else SETTLE)
+
+        actual = read_value(element)
+        if _same_value(actual, str(value)):
+            return
+
+    raise VerificationFailed(what, value, actual)
 
 
 def click(element) -> None:
@@ -116,7 +136,6 @@ def click(element) -> None:
         element.invoke()
     except Exception:
         element.click_input()
-        park_pointer()
     time.sleep(SETTLE)
 
 

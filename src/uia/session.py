@@ -109,21 +109,99 @@ def message_boxes() -> list:
     return _windows_of_class(MESSAGE_BOX_CLASS)
 
 
-def find_dialog(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
-    """Wait for a native dialog with a matching title.
+def dialog_exists(title_contains: str) -> bool:
+    """Is a native dialog with this title on screen right now? Win32 only, no UIA.
 
-    Fakturama's selector dialogs, "Select the address" and "Select a product", use the
-    same native class as its alerts and host SWT panes inside it.
+    Existence checks run in polling loops, including against dialogs that are mid-close,
+    and touching those through UIA is exactly the hazard find_dialog explains below.
     """
+    import win32gui
+
+    wanted = title_contains.casefold()
+    found = []
+
+    def visit(handle, _):
+        try:
+            if win32gui.IsWindowVisible(handle) and \
+                    win32gui.GetClassName(handle) == MESSAGE_BOX_CLASS and \
+                    wanted in win32gui.GetWindowText(handle).casefold():
+                found.append(handle)
+        except Exception:
+            pass
+        return True
+
+    win32gui.EnumWindows(visit, None)
+    return bool(found)
+
+
+def find_dialog_handle(title_contains: str, timeout: float = DEFAULT_TIMEOUT) -> int:
+    """Wait for a native dialog and return its raw win32 handle. No UIA at all.
+
+    For surfaces that UIA cannot be trusted with. The selector dialogs wedge the
+    application's UI thread intermittently when traversed through UIA while modal, so
+    they are driven entirely through win32, captures and the keyboard, starting from
+    this handle.
+    """
+    import win32gui
+
     wanted = title_contains.casefold()
 
     def look():
-        for window in message_boxes():
-            if wanted in (window.window_text() or "").casefold():
-                return window
-        return None
+        found = []
+
+        def visit(handle, _):
+            try:
+                if win32gui.IsWindowVisible(handle) and \
+                        win32gui.GetClassName(handle) == MESSAGE_BOX_CLASS and \
+                        wanted in win32gui.GetWindowText(handle).casefold():
+                    found.append(handle)
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(visit, None)
+        return found[0] if found else None
 
     return wait_until(look, timeout=timeout, description=f"dialog {title_contains!r}")
+
+
+def find_dialog(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):
+    """Wait for a native dialog with a matching title.
+
+    The poll is raw win32 on purpose, and the UIA wrapper is created exactly once, after
+    the dialog has settled. The previous version wrapped every candidate window on every
+    poll, which fires UIA property queries at an SWT dialog while it is still
+    constructing itself, and under emulation that intermittently deadlocks Fakturama's
+    UI thread. From outside, the deadlock reads as controls "not found" after a full
+    timeout, and any input already queued replays when the thread later unblocks, so
+    things appear to happen by themselves. One wrapper, made late, avoids all of it.
+    """
+    import win32gui
+
+    wanted = title_contains.casefold()
+
+    def look():
+        found = []
+
+        def visit(handle, _):
+            try:
+                if win32gui.IsWindowVisible(handle) and \
+                        win32gui.GetClassName(handle) == MESSAGE_BOX_CLASS and \
+                        wanted in win32gui.GetWindowText(handle).casefold():
+                    found.append(handle)
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(visit, None)
+        return found[0] if found else None
+
+    handle = wait_until(look, timeout=timeout,
+                        description=f"dialog {title_contains!r}")
+
+    # Let the dialog finish building before anything touches it through UIA.
+    time.sleep(2.0)
+    return desktop().window(handle=handle).wrapper_object()
 
 
 def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT):

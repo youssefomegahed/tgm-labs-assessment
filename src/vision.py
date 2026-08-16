@@ -79,6 +79,16 @@ def capture_region(box: tuple[int, int, int, int], save_to: str | None = None) -
         from src.uia.session import minimize_consoles
 
         minimize_consoles()
+        # And get the pointer off whatever it is hovering: a tooltip left open over a
+        # grid reads as part of the grid. Clicks are long finished by capture time, so
+        # moving the pointer here cannot race a dialog opening, which it did when the
+        # move happened right after the click.
+        from src.uia.actions import park_pointer
+
+        park_pointer()
+        import time as _time
+
+        _time.sleep(0.4)  # give the tooltip a beat to disappear
     except Exception:
         pass
 
@@ -109,6 +119,127 @@ def looks_blank(image: bytes, tolerance: int = 8) -> bool:
     picture = Image.open(io.BytesIO(image)).convert("L").resize((64, 64))
     lightest, darkest = picture.getextrema()
     return (darkest - lightest) <= tolerance
+
+
+GROUND_PROMPT = """\
+This is a screenshot of part of a desktop application.
+
+Locate each of the texts listed in the request. For each one, return its label exactly \
+as given and the bounding box of that text on the image as box_2d, in the form \
+[ymin, xmin, ymax, xmax] with every value normalized to the range 0 to 1000.
+
+Only include labels you can actually see. Do not guess at positions of absent labels.
+"""
+
+
+def ground_boxes(image: bytes, labels: list[str], *,
+                 what: str = "controls") -> dict[str, tuple[int, int, int, int]]:
+    """Find where each label is painted, in pixel coordinates of the capture.
+
+    This is the runtime-grounding fallback for things that are drawn rather than
+    exposed: the caller captures a region, asks where the texts sit, and derives click
+    points from the answer. Nothing is stored, so it survives layout changes the same
+    way the other locators do.
+    """
+    from PIL import Image
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "boxes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "box_2d": {"type": "array", "items": {"type": "integer"}},
+                    },
+                    "required": ["label", "box_2d"],
+                },
+            }
+        },
+        "required": ["boxes"],
+    }
+
+    wanted = ", ".join(repr(label) for label in labels)
+    result = generate_json(
+        [
+            types.Part.from_bytes(data=image, mime_type="image/png"),
+            GROUND_PROMPT + f"\nFind these texts: {wanted}",
+        ],
+        schema,
+        what=what,
+    )
+
+    width, height = Image.open(io.BytesIO(image)).size
+    found = {}
+    for entry in result.get("boxes", []):
+        label = entry.get("label", "")
+        box = entry.get("box_2d", [])
+        if label in labels and len(box) == 4:
+            ymin, xmin, ymax, xmax = box
+            found[label] = (
+                int(xmin / 1000 * width), int(ymin / 1000 * height),
+                int(xmax / 1000 * width), int(ymax / 1000 * height),
+            )
+    return found
+
+
+def selection_row_center(image: bytes, min_fraction: float = 0.20) -> int | None:
+    """The vertical centre of the highlighted row in a grid capture, if any.
+
+    The selection band is a saturated blue on an otherwise light grid, so plain pixel
+    counting finds it without a model call: a row of pixels belongs to the band when a
+    decent fraction of it is much bluer than it is red or green.
+    """
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(image)).convert("RGB")
+    width, height = picture.size
+    pixels = picture.load()
+
+    band_rows = []
+    step = max(1, width // 200)  # sampling every few pixels is plenty
+    needed = (width // step) * min_fraction
+    for y in range(height):
+        hits = 0
+        for x in range(0, width, step):
+            r, g, b = pixels[x, y]
+            if b > 150 and b - r > 80 and b - g > 60:
+                hits += 1
+        if hits >= needed:
+            band_rows.append(y)
+
+    if not band_rows:
+        return None
+    return (band_rows[0] + band_rows[-1]) // 2
+
+
+def changed_row_center(before: bytes, after: bytes, min_fraction: float = 0.15) -> int | None:
+    """The centre of the horizontal band that differs between two captures.
+
+    Colour-agnostic selection detection: whatever a click did to the clicked row,
+    that row is where the pixels changed. Immune to theme, focus state and the
+    inactive-selection grey that defeats a colour test.
+    """
+    from PIL import Image, ImageChops
+
+    a = Image.open(io.BytesIO(before)).convert("RGB")
+    b = Image.open(io.BytesIO(after)).convert("RGB")
+    if a.size != b.size:
+        return None
+
+    diff = ImageChops.difference(a, b).convert("L")
+    width, height = diff.size
+    pixels = diff.load()
+    step = max(1, width // 200)
+    needed = (width // step) * min_fraction
+
+    rows = [y for y in range(height)
+            if sum(1 for x in range(0, width, step) if pixels[x, y] > 24) >= needed]
+    if not rows:
+        return None
+    return (rows[0] + rows[-1]) // 2
 
 
 def read_table(image: bytes, columns: list[str], *, what: str = "table") -> list[dict]:

@@ -71,23 +71,31 @@ def _try_select(main_window, item: LineItem, log) -> bool:
         main_window.restore_editor_area()
         raise
 
+    from src.fakturama.selector_dialog import SelectorClosedEarly
+
     dialog = ProductDialog()
-    dialog.search(item.sku)
-    rows = dialog.rows()
-    log(f"  product selector returned {len(rows)} row(s)")
+    try:
+        dialog.search(item.sku)
+        rows = dialog.rows()
+        log(f"  product selector returned {len(rows)} row(s)")
 
-    found = resolve_one(
-        rows, lambda row: product_matches(row, item.sku),
-        what=f"Product {item.sku!r}", stage=STAGE,
-    )
+        found = resolve_one(
+            rows, lambda row: product_matches(row, item.sku),
+            what=f"Product {item.sku!r}", stage=STAGE,
+        )
 
-    if found is None:
-        dialog.cancel()
-        main_window.restore_editor_area()
-        return False
+        if found is None:
+            dialog.cancel()
+            main_window.restore_editor_area()
+            return False
 
-    dialog.choose(rows.index(found))
-    log(f"  selected {found}")
+        dialog.choose(rows.index(found))
+        log(f"  selected {found}")
+    except SelectorClosedEarly:
+        # The selector commits itself when a search narrows to one exact match. Whether
+        # that took our row is decided below by the Order's own totals, exactly as for
+        # an explicit selection.
+        log("  selector closed itself on a single exact match")
 
     # Confirm the Order actually gained the line. Selecting reported success while the
     # dialog was throwing internally and adding nothing, which left the totals at zero
@@ -98,14 +106,22 @@ def _try_select(main_window, item: LineItem, log) -> bool:
     net = totals.get("total_net") or totals.get("total_gross") or ""
     log(f"  order total is now {net!r}")
 
-    main_window.restore_editor_area()
-
     if _looks_like_zero(net):
+        main_window.restore_editor_area()
         raise ManualReviewRequired(
             f"selected Product {item.sku!r} but the Order total is still {net!r}, so "
             f"the line was not added",
             stage=STAGE,
         )
+
+    # Complete the line while its row is still highlighted from the selection, and
+    # while the editor is still maximized so the Discount column exists on screen.
+    from src.fakturama.order_items import OrderItems
+
+    try:
+        OrderItems(main_window).complete_current_line(item, log=log)
+    finally:
+        main_window.restore_editor_area()
     return True
 
 
