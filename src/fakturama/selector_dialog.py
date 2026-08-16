@@ -202,10 +202,51 @@ class SelectorDialog:
         if self._closed_within(close_timeout):
             return
 
+        # Still open. The brief's own instruction is to select the row and click OK, and
+        # that is now safe to follow: OK being enabled with nothing selected is why it
+        # was avoided, and a row has been shown to be selected above.
+        if self._click_ok() and self._closed_within(close_timeout):
+            return
+
         raise ManualReviewRequired(
             f"{self.TITLE} would not close after choosing row {row_index}",
             stage="selector",
         )
+
+    def _click_ok(self) -> bool:
+        """Ground the dialog's OK button and click it. Says whether it clicked.
+
+        Both buttons are grounded rather than just OK, and the click only happens when
+        they come back in the order the dialog draws them, OK to the left of Cancel.
+        Cancel sits a few dozen pixels away and takes the flow down the creation branch,
+        where a duplicate customer is precisely the outcome the brief spends six steps
+        avoiding. A grounding that cannot be sanity-checked is not acted on.
+
+        The strip is the bottom of the dialog rather than a thin band around the buttons,
+        because grounding is unreliable on very elongated images.
+        """
+        left, top, right, bottom = self.rect()
+        strip = (left, max(top, bottom - 240), right, bottom)
+
+        try:
+            boxes = vision.ground_boxes(vision.capture_region(strip), ["OK", "Cancel"],
+                                        what=f"the {self.TITLE} buttons")
+        except Exception:
+            return False
+
+        if "OK" not in boxes or "Cancel" not in boxes:
+            return False
+
+        ok, cancel = boxes["OK"], boxes["Cancel"]
+        if ok[2] >= cancel[0]:
+            # Not the layout this dialog uses, so the grounding is not trustworthy.
+            return False
+
+        from pywinauto import mouse
+
+        mouse.click(coords=(strip[0] + (ok[0] + ok[2]) // 2,
+                            strip[1] + (ok[1] + ok[3]) // 2))
+        return True
 
     def cancel(self) -> None:
         """Escape first; WM_CLOSE if the dialog lingers. Never a click on OK."""

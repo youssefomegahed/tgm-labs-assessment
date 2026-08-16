@@ -99,6 +99,41 @@ def missing_from_address_block(block: str, debtor: Debtor) -> list[str]:
     ]
 
 
+def missing_from_delivery_block(block: str, debtor: Debtor) -> list[str]:
+    """Which delivery details are absent from a populated delivery address block.
+
+    Street, postcode and city, and deliberately not the name heading the source
+    document's delivery block. That name is stored on the debtor's second address as its
+    `additional name` and is verified there when it is written, but a document's address
+    block renders the debtor followed by street, postcode, city and country and never the
+    additional name, so looking for it here looks for something Fakturama does not draw.
+
+    A block showing the *billing* street is reported as well. An address that is
+    populated but carrying the wrong one of the debtor's two addresses is the failure
+    this exists to catch, and it would otherwise pass unnoticed by being merely
+    incomplete rather than obviously empty.
+    """
+    haystack = re.sub(r"\s+", " ", block or "").casefold()
+
+    def present(value: str) -> bool:
+        return bool(value) and re.sub(r"\s+", " ", value).casefold() in haystack
+
+    missing = [
+        f"{label} ({value})"
+        for label, value in (
+            ("street", debtor.delivery.street),
+            ("zip", debtor.delivery.zip_code),
+            ("city", debtor.delivery.city),
+        )
+        if value and not present(value)
+    ]
+
+    if debtor.billing.street != debtor.delivery.street and present(debtor.billing.street):
+        missing.append(f"shows the billing street instead ({debtor.billing.street})")
+
+    return missing
+
+
 def product_matches(row: dict, sku: str) -> bool:
     """SKU only. Description and price are allowed to differ from the order line."""
     return cell_matches(row.get("Item No.", ""), sku)

@@ -78,7 +78,7 @@ class OrderItems:
             self._set_cell(grid, spans, row_y, "Discount", item.discount_percent,
                            item, log)
 
-        self._confirm_line_total(grid, item, log)
+        self._confirm_line(grid, item, log)
 
     # --- one cell -------------------------------------------------------------
 
@@ -257,22 +257,53 @@ class OrderItems:
             vision.capture_region(grid, save_to="runs/items-readback.png"),
             COLUMNS, what="the Items grid")
 
-    def _confirm_line_total(self, grid, item: LineItem, log) -> None:
-        """The brief's step 3.16: the line's own Price has to be what the document says.
+    def _confirm_line(self, grid, item: LineItem, log) -> None:
+        """The brief's steps 3.14 and 3.16, from a single read of the row.
 
-        Worth doing separately from the per-cell checks. Those prove each value arrived;
-        this proves Fakturama did the same arithmetic with them that the source document
-        did, which is the thing the Order will actually be saved with.
+        U.Price and the VAT rate are worth confirming even though this flow never types
+        them: they come across from the Product master, and a Product that already
+        existed under this SKU can carry a price that is not the one this order was
+        written against. The line total alone would not tell that apart from a quantity
+        error, and each of the three is a different way for the document to be wrong.
+
+        One read for all three, because each one costs a model call.
         """
-        shown = self._read_cell(grid, item, "Price")
-        value = _as_number(shown or "")
-        if value is None or value != item.line_net:
+        row = next((candidate for candidate in self._rows(grid)
+                    if (candidate.get(ROW_HEADER, "") or "").strip() == str(item.position)),
+                   None)
+        if row is None:
             raise ManualReviewRequired(
-                f"line {item.position} ({item.sku}) shows a total of {shown!r}, and the "
-                f"document says {item.line_net}",
+                f"line {item.position} ({item.sku}) is not in the Items grid to check",
                 stage=STAGE,
             )
-        log(f"  line total {shown!r} matches the document")
+
+        wrong = []
+
+        unit = _as_number(row.get("U.Price", ""))
+        if unit is None or unit != item.unit_net:
+            wrong.append(f"U.Price shows {row.get('U.Price')!r}, document says "
+                         f"{item.unit_net}")
+
+        # The cell is clipped to something like "VAT 19% (19.0...", so the rate's name is
+        # the part of it that identifies the rate.
+        vat = (row.get("VAT") or "").strip()
+        if not vat.startswith(item.vat_rate_name):
+            wrong.append(f"VAT shows {vat!r}, expected the rate "
+                         f"{item.vat_rate_name!r}")
+
+        total = _as_number(row.get("Price", ""))
+        if total is None or total != item.line_net:
+            wrong.append(f"the line total shows {row.get('Price')!r}, document says "
+                         f"{item.line_net}")
+
+        if wrong:
+            raise ManualReviewRequired(
+                f"line {item.position} ({item.sku}) does not match the document:\n  "
+                + "\n  ".join(wrong),
+                stage=STAGE,
+            )
+        log(f"  U.Price {row.get('U.Price')!r}, VAT {vat!r}, "
+            f"total {row.get('Price')!r}, all as the document")
 
 
 def _same_cell(opened: str, listed: str) -> bool:

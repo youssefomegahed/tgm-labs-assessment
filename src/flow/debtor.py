@@ -17,7 +17,8 @@ from src.fakturama.address_dialog import AddressDialog
 from src.fakturama.debtor_editor import DebtorEditor
 from src.fakturama.order_editor import OrderEditor
 from src.fakturama.payment_editor import PaymentEditor
-from src.matching import debtor_candidate, missing_from_address_block, resolve_one
+from src.matching import (debtor_candidate, missing_from_address_block,
+                          missing_from_delivery_block, resolve_one)
 from src.models import OrderData
 
 STAGE = "debtor"
@@ -78,9 +79,11 @@ def _try_select(main_window, order: OrderData, log) -> bool:
     time.sleep(2)
     log(f"selected candidate {found}")
 
-    # The name got us here; the address the Order now shows is what confirms it really
+    # The name got us here; the addresses the Order now shows are what confirm it really
     # is our customer. Anything missing means we picked the wrong person.
-    block = OrderEditor(main_window).address_block()
+    editor = OrderEditor(main_window)
+
+    block = editor.address_block("Invoice address")
     missing = missing_from_address_block(block, order.debtor)
     if missing:
         raise ManualReviewRequired(
@@ -88,9 +91,41 @@ def _try_select(main_window, order: OrderData, log) -> bool:
             f"Missing: {', '.join(missing)}. Address shown: {block!r}",
             stage=STAGE,
         )
-
     log("invoice address matches the document")
+
+    _confirm_delivery(editor, order, log)
     return True
+
+
+def _confirm_delivery(editor: OrderEditor, order: OrderData, log) -> None:
+    """The second half of step 2.4, for a Debtor selected rather than created.
+
+    Worth checking separately from the invoice address rather than trusting that a
+    debtor whose billing details match must have the right delivery ones. This selector
+    lists one row per address, candidates are narrowed on the contact's name alone, and
+    two people who share a name would both pass the invoice check while shipping to
+    different places. The delivery address is where that shows up.
+    """
+    if order.debtor.delivery_is_billing:
+        log("billing and delivery are the same address on the document")
+        return
+
+    if not editor.has_address_tab("Delivery address"):
+        raise ManualReviewRequired(
+            "the source document has a separate delivery address and the Order shows no "
+            "Delivery address tab for the selected Debtor",
+            stage=STAGE,
+        )
+
+    block = editor.address_block("Delivery address")
+    missing = missing_from_delivery_block(block, order.debtor)
+    if missing:
+        raise ManualReviewRequired(
+            "the selected Debtor's delivery address does not match the document. "
+            f"Missing: {', '.join(missing)}. Address shown: {block!r}",
+            stage=STAGE,
+        )
+    log("delivery address matches the document")
 
 
 def _create(main_window, order: OrderData, log) -> None:

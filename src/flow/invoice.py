@@ -18,6 +18,7 @@ from src.errors import ManualReviewRequired
 from src.fakturama.documents_view import DocumentsView
 from src.fakturama.invoice_editor import InvoiceEditor
 from src.fakturama.order_editor import OrderEditor
+from src.matching import cell_matches, missing_from_delivery_block
 from src.models import OrderData
 from src.uia.actions import _as_number
 from src.uia.locator import wait_until
@@ -113,24 +114,8 @@ def _confirm_copied(editor: InvoiceEditor, order: OrderData, log) -> None:
             wrong.append(f"the invoice address is missing {field!r}")
 
     if editor.has_address_tab("Delivery address"):
-        delivery = editor.address_block("Delivery address")
-        # Street, ZIP and city, and deliberately not the name heading the source
-        # document's delivery block. That name, "Northstar Office Warehouse", is stored
-        # on the debtor's second address as its `additional name` and verified there when
-        # stage 2 writes it, but a document's address block renders the debtor and the
-        # address's street, postcode, city and country, and never the additional name.
-        # Asserting it here would be asserting something Fakturama does not display.
-        #
-        # The three that are checked are what actually distinguishes this address from
-        # the billing one, which is the thing worth being sure of: Beusselstrasse 44 and
-        # 10553, not Friedrichstrasse 88 and 10117.
-        for field in (order.debtor.delivery.street, order.debtor.delivery.zip_code,
-                      order.debtor.delivery.city):
-            if field and field not in delivery:
-                wrong.append(f"the delivery address is missing {field!r}")
-        if order.debtor.billing.street in delivery:
-            wrong.append("the delivery address shows the billing street, so the Invoice "
-                         "is carrying the wrong one of the debtor's addresses")
+        wrong.extend(missing_from_delivery_block(
+            editor.address_block("Delivery address"), order.debtor))
     elif not order.debtor.delivery_is_billing:
         wrong.append("the source document has a separate delivery address and the "
                      "Invoice shows no Delivery address tab")
@@ -192,8 +177,6 @@ def _confirm_saved(main_window, order: OrderData, order_row: dict, number: str,
     documents = DocumentsView(main_window)
     documents.open()
     rows = documents.rows(save_to="runs/documents-final.png")
-
-    from src.matching import cell_matches
 
     invoice = next((row for row in rows
                     if cell_matches(row.get("Document", ""), number)), None)
