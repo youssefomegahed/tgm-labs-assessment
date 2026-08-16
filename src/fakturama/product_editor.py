@@ -26,13 +26,11 @@ class ProductEditor:
         rate, and zero for cost price and stock. Category, GTIN, supplier code,
         allowance, the picture and the user defined fields are left alone.
         """
-        self.main.open_navigation("New product")
-        time.sleep(3)
+        self._open_blank_editor()
 
-        # Bring the editor to the front before looking for its fields. If a New product
-        # tab is already open, the navigation entry focuses it rather than creating
-        # another, and SWT does not realize a hidden tab's page, so the fields are
-        # simply absent from the tree until the tab is actually in front.
+        # Bring the editor to the front before looking for its fields. SWT does not
+        # realize a hidden tab's page, so the fields are absent from the tree until the
+        # tab is actually in front.
         self.main.focus_editor(TAB)
         find(self.window, control_type="Edit", name="Item Number", timeout=45)
         # The form is taller than the editor pane, and controls below its edge take text
@@ -67,3 +65,25 @@ class ProductEditor:
             time.sleep(3)
         finally:
             self.main.restore_editor_area()
+
+    def _open_blank_editor(self, attempts: int = 3) -> None:
+        """Open a fresh New product tab, waiting for it to actually appear.
+
+        Saving renames the tab from "New product" to the product's own name, so on the
+        second and later products the navigation entry has to build a new tab rather
+        than focus an existing one. That takes longer than focusing does, and clicking
+        the entry again while it is still building achieves nothing, so this waits and
+        only re-clicks if the tab never arrived.
+        """
+        from src.uia.locator import wait_until
+
+        for attempt in range(attempts):
+            self.main.open_navigation("New product")
+            try:
+                wait_until(lambda: self.main.has_tab(TAB), timeout=30,
+                           description="the New product editor")
+                return
+            except Exception:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(3)
