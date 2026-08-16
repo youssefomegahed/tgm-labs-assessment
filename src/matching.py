@@ -131,6 +131,20 @@ def vat_matches(row: dict, item: LineItem) -> bool:
         return False
 
 
+def vat_list_row_matches(row: dict, item: LineItem) -> bool:
+    """A row in the VATs list, matched on name and value.
+
+    The e-invoice code is not a column in that list, so it cannot be checked from here.
+    vat_matches is the stricter test for when the code has been read from an opened row.
+    """
+    if not cell_matches(row.get("Name", ""), item.vat_rate_name):
+        return False
+    try:
+        return to_decimal(row.get("Value", "")) == item.vat_percent
+    except Exception:
+        return False
+
+
 def resolve_one(rows: list[dict], predicate, *, what: str, stage: str = "") -> dict | None:
     """Pick the single matching row.
 
