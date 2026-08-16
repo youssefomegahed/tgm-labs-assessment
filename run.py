@@ -88,9 +88,33 @@ def main(argv: list[str] | None = None) -> int:
         print("\ndry run, stopping before Fakturama")
         return 0
 
-    # The UI stages land next. Until then, be honest about it rather than pretending.
-    print("\nthe Fakturama stages are not wired up yet, use --dry-run")
-    return 1
+    return drive_fakturama(order)
+
+
+def drive_fakturama(order: OrderData) -> int:
+    """Run the brief's stages against a live Fakturama.
+
+    Imported here rather than at module scope so that --dry-run, and the tests, work on
+    a machine without pywinauto.
+    """
+    from src.fakturama.main_window import MainWindow
+    from src.flow import debtor as debtor_flow
+    from src.flow import order as order_flow
+
+    def step(message: str) -> None:
+        print(f"  {message}")
+
+    main_window = MainWindow.launch()
+
+    print("\nstage 1: open the Order")
+    order_flow.begin(main_window, order, log=step)
+
+    print("\nstage 2: select or create the Debtor")
+    debtor_flow.resolve(main_window, order, log=step)
+
+    # Stages 3 to 5 land next: Products and VAT, saving the Order, the linked Invoice.
+    print("\nstages 1 and 2 complete. Products, Order save and Invoice are not built yet.")
+    return 0
 
 
 if __name__ == "__main__":

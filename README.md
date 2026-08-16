@@ -9,38 +9,36 @@ file is how to run it.
 
 ## Where it currently stands
 
-Honest status, because the brief says the scope is bigger than the timebox.
+**Working and verified against the real application, from an empty database:**
 
-**Working and verified against the real application:**
+- Reading the order image. All 44 fields match a hand-read ground truth exactly, and the
+five arithmetic checks pass.
+- Stage 1 in full: open a New Order, leave the proposed number alone, set the price mode
+to Net, confirm VAT is With VAT, set the Date and Cust.Ref., and re-read the whole
+header afterwards.
+- Stage 2 in full: search the address selector, take the creation branch when nothing
+matches, create the missing Payment Method with its Credit transfer code, create the
+Debtor with its billing address and a separate warehouse delivery address and the
+right role on each, select the payment method, save once, then return to the still-open
+Order, find the Debtor, select it, and confirm the populated invoice address matches
+the source document field by field.
+- Getting Fakturama through its first-run dialog, and seeding the default Shipping
+record it needs before any Order will open.
 
-- Reading the order image. All 44 fields come back matching a hand-read ground truth
-  exactly, and the five arithmetic checks pass.
-- Stage 1: open a New Order, leave the proposed number alone, set the Date and
-  Cust.Ref., switch the price mode to Net, confirm VAT is With VAT.
-- Opening the Debtor selector using the correct upper icon rather than the green plus.
-- Searching that selector and reading its results. The grid is invisible to UIA, so the
-  rows are read from a screenshot by a vision model. Verified on the empty case.
-- Cancelling into the creation branch, opening New Contact with the Order tab still
-  open behind it, and filling the Debtor: company, contact name, street, ZIP, city,
-  country, e-mail and telephone, each verified by reading the value back.
-- Getting Fakturama through its first-run dialog.
+**Not built yet:** stages 3 to 5. Products and VAT rates, the Order item lines, saving
+and verifying the Order, and the linked Invoice with its payment status. The matching
+rules those stages need are written and unit tested but not yet wired to the UI.
 
-**Not built yet:** assigning address roles, the second address our sample needs, the
-alias and payment method, saving the Debtor and re-selecting it from the Order. Then
-stages 3 to 5 entirely: Products, VAT, item lines, saving the Order, and the linked
-Invoice. The matching rules those stages need are written and unit tested but not yet
-wired to the UI.
-
-The largest open risk is the Items grid, which is drawn the same way the selector grids
-are. Reading it should work through the same vision fallback, but *entering* line items
-into it has no UIA path at all and will need keyboard navigation.
+The largest open risk is the Items grid. Like the selector grids it is drawn rather than
+exposed to UIA, so reading it should work through the same vision fallback, but
+*entering* line items into it has no UIA path at all and will need keyboard navigation.
 
 ## What you need
 
 - **Windows.** Microsoft UIA is Windows only. If you are on a Mac, see the last section.
 - **A Gemini API key**, free tier is enough. From [Google AI Studio](https://aistudio.google.com/apikey).
-  Note that a project with billing switched on leaves the free tier, so a key from a
-  project with no billing is the simplest thing.
+Note that a project with billing switched on leaves the free tier, so a key from a
+project with no billing is the simplest thing.
 
 Everything else the setup script installs.
 
@@ -55,9 +53,9 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 It is safe to re-run, and it will raise two UAC prompts. It installs:
 
 - Python 3.12 **x64**, deliberately not ARM64 even on an ARM machine, so it matches
-  Fakturama, which ships x64 only
+Fakturama, which ships x64 only
 - the Visual C++ redistributable, which `pywinauto` needs indirectly: it imports
-  `win32ui`, which needs `mfc140u.dll`, which this `pywin32` build does not bundle
+`win32ui`, which needs `mfc140u.dll`, which this `pywin32` build does not bundle
 - Fakturama 2.2.0 with bundled Java
 - a virtualenv at `C:\dev\venv` with the Python dependencies
 
@@ -105,8 +103,10 @@ C:\dev\venv\Scripts\python.exe run.py data\order.png --extraction tests\fixtures
 C:\dev\venv\Scripts\python.exe -m pytest
 ```
 
-47 tests covering number and date parsing, the exact-match rules, and the arithmetic
-validation. None of them need Windows or an API key, so they also run on a Mac.
+68 tests covering number and date parsing, the exact-match and candidate rules, the
+arithmetic validation, the blank-capture guard, and how a committed value is compared
+against what was written. None of them need Windows or an API key, so they also run on
+a Mac.
 
 Three further tests call the model and compare its reading of `data/order.png` against
 the ground truth field by field. They are opt-in because they cost API calls:
@@ -128,6 +128,17 @@ Copy-Item C:\FakturamaData-clean C:\FakturamaData -Recurse -Force
 
 Take that clean copy right after `tools\first_run.py` finishes, before the first run.
 
+Do not reset by deleting the data directory. Fakturama remembers the workspace path
+elsewhere, so it silently rebuilds an empty database without re-running the wizard that
+seeds it, and a New Order then refuses to open with "No default value found for
+Shippings". If that happens:
+
+```
+C:\dev\venv\Scripts\python.exe tools\seed_shipping.py
+```
+
+which recreates the "Free of shipping costs" default the brief expects anyway.
+
 ## Layout
 
 ```
@@ -136,10 +147,12 @@ src/matching.py      what counts as an exact match, and what counts as ambiguous
 src/money.py         rounding, in one place
 src/errors.py        including ManualReviewRequired, the deliberate stop
 src/extract/         image to typed data, and the arithmetic checks on it
+src/gemini.py        the only file that knows which model provider is used
+src/vision.py        reading grids that Fakturama draws and UIA cannot see
 src/uia/             generic Windows plumbing, knows nothing about Fakturama
 src/fakturama/       one class per editor or dialog, hides every locator
 src/flow/            the brief's five stages (in progress)
-tools/               first-run setup, and a UIA tree inspector
+tools/               first-run setup, shipping seeder, and a UIA tree inspector
 scripts/             environment setup
 ```
 

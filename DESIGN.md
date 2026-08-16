@@ -73,8 +73,8 @@ save wrong numbers.
 
 ## Finding the controls
 
-This is the part with no clean answer, so I use three strategies and fall through them
-in order of how much I trust them.
+There is no single reliable handle for every control here, so the locator uses four
+strategies and falls through them in order of how much they can be trusted.
 
 **First, UIA properties.** Control type plus name or automation id. This is the fastest
 and the most stable across window sizes, DPI and theme. Where SWT gives a control a
@@ -92,46 +92,91 @@ near them. The brief flags the worst case itself: beside Addresses there is an u
 icon that opens the existing-contact selector and a lower green plus that starts a new
 Debtor, and clicking the wrong one silently sends the flow down the wrong branch.
 
-I had planned a vision fallback for these, screenshotting the group and asking a model
-which icon is which. It turned out not to be needed. Those two icons are unnamed
-`Image` controls, but they are a tidy vertical stack in one column, 56 pixels apart, so
-sorting the unnamed images below the `Addresses` label by their top edge orders them
-unambiguously. Taking the first is the existing-contact selector. That is cheaper,
-deterministic, and has no API dependency.
+Those two are unnamed `Image` controls, but they form a tidy vertical stack in one
+column, so sorting the unnamed images below the `Addresses` label by their top edge
+orders them unambiguously. Taking the first gives the existing-contact selector. The
+same rule, rotated, handles one label heading several fields: `ZIP - City` sits in front
+of a ZIP box and a City box, and reading order settles which is which.
 
 Sorting by position is not the same as hardcoding a position. The rectangles are read
 off the live window on every run, so moving or resizing the form changes the answer
 rather than breaking it. Only the ordering is assumed, and the ordering is what the
 brief itself describes when it says "upper" and "lower".
 
-I have kept the vision fallback in the design as the answer for any control that is
-neither named nor positionally ordered, but so far nothing in the flow has needed it.
+**Fourth, a vision fallback**, for the one place UIA runs out entirely. That is the
+subject of the next section.
 
-### What the spike actually found
+### What the UIA tree is actually like
 
-I inspected the real tree before committing to any of this, and it changed three things.
+Three properties of it shape everything above.
 
 SWT copies a field's label into the field's accessible name, so `Edit 'Cust.Ref.'` is
-directly addressable and the second strategy is needed far less than I expected. It is
-still needed: `No.` and `Date` are anonymous Edits sitting to the right of named labels.
+directly addressable. This is the single biggest reason a property-based approach works
+here, and it means the second strategy is needed less often than the UI's appearance
+suggests. It is still needed: `No.` and `Date` are anonymous Edits beside named labels.
 
-Automation ids exist on almost every control, which looked promising until I noticed
-they are numeric handles like `328444`. They will not survive a restart, so they are
-deliberately never used as a key. Control type plus name is what stays put.
+Automation ids exist on almost every control, but they are numeric handles like
+`328444` that do not survive a restart. They are never used as a key. Control type plus
+name is what stays put.
 
-And pywinauto's own `descendants()` hangs for minutes on Fakturama's main window, while
-walking the identical tree with `children()` covers all 171 nodes in 0.8 seconds. So
-the locator does its own bounded breadth-first walk. That one is a library problem
-rather than an application problem, but it would have sunk the whole approach if I had
-taken the slow path as evidence that UIA was unworkable here.
+And pywinauto's own `descendants()` hangs for minutes on the main window, while walking
+the identical tree with `children()` covers all 171 nodes in under a second. The locator
+therefore does its own bounded breadth-first walk. That is a library problem rather than
+an application one, but taking the slow path as evidence that UIA was unworkable here
+would have sunk the whole approach.
+
+## Where UIA runs out
+
+Fakturama draws its selector grids itself. The "Select the address" and "Select a
+product" dialogs have named OK and Cancel buttons and a reachable search box, but where
+the result rows should be the tree holds a single empty pane: no table, no rows, no
+cells. The columns the brief says to match on are simply not available as data. The
+Items grid on the Order is drawn the same way.
+
+So those are read by capturing the grid region and passing it to a vision model with the
+column names and a schema, which returns rows as dicts. `matching.py` already works on
+dicts of column name to text, so nothing downstream knows where the rows came from. The
+region is computed from live control positions, between the search box and the OK
+button, rather than written down.
+
+Two safeguards, because this path is the least deterministic in the system. A capture
+that is a single flat colour is refused rather than read, since a covered window
+otherwise reads as "no rows" and an empty result sends the flow off to create a
+duplicate. And the application is pinned above other windows for the duration of a run,
+because a console appears with every remote command and would otherwise land in the
+captures.
 
 ## Knowing each step worked
 
-Two levels of checking, because they catch different failures.
+This is the hardest part of automating this application, and the part most of the design
+exists to handle.
 
-Every write reads itself back. Setting a field and moving on assumes the click landed,
-the field had focus, and the widget accepted the value. Reading it back costs one
-property access and turns a silent wrong value into an immediate, located failure.
+The defining behaviour is that **a write reports success without the application having
+accepted it.** It appears in many guises. A tab whose `select()` returned
+cleanly and did not change the page. A dropdown that prefix-matched per keystroke and
+settled on a neighbouring entry. A field that took any text and rejected it when focus
+left. A date box that is a segmented spinner, so a formatted string scattered across
+month, day and year. A Company that was written, read back correctly, and saved empty.
+An OK button that reports itself enabled with nothing selected, so clicking it committed
+nothing while looking exactly like success.
+
+Three rules fall out of that, and together they are the design:
+
+**Verify after the widget commits, not after the write.** An immediate read-back only
+proves the characters arrived. Writes move focus away first, then check. Two riders:
+the filter-as-you-type search box is the one field where losing focus destroys the
+value, so it opts out; and Fakturama reformats as it commits, turning "0" into "0%",
+which is acceptance rather than rejection, so numbers are compared by meaning while
+text is still compared exactly.
+
+**Re-read the whole thing at the end of a stage.** Per-field checks cannot catch a later
+step undoing an earlier one, and one did: the Order's Date reverted after being verified.
+
+**Confirm through the application's own view of saved state.** After saving a Debtor, go
+back to the Order, search the selector, select it, and check the address it populates
+against the source document. The editor shows what was typed; the selector shows what
+was stored. This is what caught a Debtor saved without its company name, and it is what
+would have caught an Order silently attached to no customer at all.
 
 Every stage is confirmed through the application's own view of saved state. After the
 Order is saved I look for it in `Data > Documents` with the expected reference, state
@@ -175,14 +220,25 @@ four different column sets and four different definitions of "exact" would need 
 configuration to share one function that the shared version would be harder to read
 than the copies. That is a judgement, and I would revisit it if a fifth appeared.
 
-## What the sample taught me
+## Where the sample departs from the brief
 
 The delivery address on the sample document is not the billing address. It ships to
 "Northstar Office Warehouse" on a different street with a different postcode. The brief
-only spells out the case where the two match, where the Main address carries both
-roles. So the Debtor here needs a second address with the Delivery role, which is a
-branch the instructions do not walk through. Reading the data before writing the code
-was worth it.
+only spells out the case where the two match and the Main address carries both roles, so
+this Debtor needs a second address with the Delivery role, a branch the instructions do
+not walk through.
+
+That has a consequence for matching. Fakturama's address selector lists one row per
+address rather than per debtor, and the row it surfaces for a debtor with two addresses
+may be the delivery one, which carries no company and a different postcode. The brief's
+exact-match rule, which requires Company and the billing ZIP and City to agree, cannot
+match such a row, and failing to match means creating a duplicate customer.
+
+So candidates are narrowed on the contact's first and last name, which are the fields
+that stay constant across a debtor's addresses, and the strict check moves to after the
+selection: the Order populates the chosen debtor's invoice address, and every detail
+from the source document has to appear in it. Strictness is not lost, it is applied to
+data that is actually reliable.
 
 ## Tradeoffs, and what I would change
 
