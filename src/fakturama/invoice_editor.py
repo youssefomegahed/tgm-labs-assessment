@@ -22,7 +22,7 @@ import time
 
 from datetime import date
 
-from src.errors import VerificationFailed
+from src.errors import ManualReviewRequired, VerificationFailed
 from src.fakturama.document_editor import DocumentEditor, format_date
 from src.uia import actions
 from src.uia.locator import find, labelled
@@ -65,7 +65,20 @@ class InvoiceEditor(DocumentEditor):
         combo = self._payment_combo()
         if actions.read_value(combo).strip() == method:
             return
-        actions.select_combo(combo, method, what="Invoice payment method")
+
+        try:
+            actions.select_combo(combo, method, what="Invoice payment method")
+        except VerificationFailed as failure:
+            # The brief's 5.2 is explicit that an unavailable method stops for manual
+            # review, so this is a decision for a person rather than an automation
+            # error. The options are listed because the usual cause is a method whose
+            # Name and Description differ, and the dropdown lists Descriptions.
+            offered = actions.combo_items(combo)
+            raise ManualReviewRequired(
+                f"the Invoice cannot be set to pay by {method!r}. It offers "
+                f"{offered or 'nothing readable'}.",
+                stage="invoice",
+            ) from failure
 
     def mark_paid(self, paid_on: date, value: str) -> None:
         """Tick paid, then set the payment date and the value.

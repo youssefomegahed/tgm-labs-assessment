@@ -109,6 +109,36 @@ class DocumentEditor:
         totals = self.totals()
         return totals.get("total_net") or totals.get("total_gross") or ""
 
+    def shipping(self) -> tuple[str, str]:
+        """The shipping method and what it costs, as (name, cost).
+
+        The cost has no label of its own. It is the Edit to the right of the Shipping
+        dropdown, on the same row, which is the same anchor-relative rule the rest of
+        this form needs, taken rightwards instead of leftwards.
+        """
+        from src.uia.locator import iter_descendants
+
+        combo = find_optional(self.window, control_type="ComboBox", name="Shipping",
+                              timeout=5)
+        if combo is None:
+            return "", ""
+
+        box = combo.rectangle()
+        middle = (box.top + box.bottom) / 2
+
+        to_the_right = []
+        for element in iter_descendants(self.window):
+            if element.element_info.control_type != "Edit":
+                continue
+            rect = element.rectangle()
+            if rect.top <= middle <= rect.bottom and rect.left >= box.right - 4:
+                to_the_right.append((rect.left, element))
+
+        cost = ""
+        if to_the_right:
+            cost = actions.read_value(sorted(to_the_right)[0][1])
+        return actions.read_value(combo).strip(), cost
+
     # --- writing -------------------------------------------------------------
 
     def confirm_vat_mode(self, expected: str = "With VAT") -> str:

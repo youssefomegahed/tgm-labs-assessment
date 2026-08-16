@@ -10,9 +10,12 @@ Another drawn grid, so the rows are read from a capture.
 import time
 
 from src import vision
-from src.uia.locator import find, find_optional
+from src.uia.locator import find_all, wait_until
 
 VIEW = "Documents"
+
+# The view's create button is named after the document type its tree is showing.
+CREATE_PREFIX = "Create: "
 
 # As shown in the brief's figures 8 and 10.
 COLUMNS = ["Document", "Date", "Name", "Cust.Ref.", "State", "Total", "Printed"]
@@ -24,16 +27,44 @@ class DocumentsView:
         self.window = main_window.window
 
     def open(self) -> None:
+        # This view lives in the bottom panel, and a maximized editor stack hides that
+        # panel completely. Several steps maximize the editor and restore it afterwards,
+        # but Eclipse persists the workbench layout across restarts, so a run that died
+        # while maximized would otherwise leave the next run unable to open this view.
+        self.main.restore_editor_area()
+
         self.main.open_navigation(VIEW)
-        # The view builds in the bottom panel and is slow under emulation. Wait for its
-        # own toolbar button rather than for a fixed time.
-        find(self.window, control_type="Button", contains="Create: Order", timeout=45)
+        # The view builds in the bottom panel and is slow under emulation, so wait on its
+        # own toolbar button rather than on a fixed time.
+        self._create_button(timeout=45)
         time.sleep(1)
+
+    def _create_button(self, timeout: float = 10.0):
+        """The view's own "create a document" button, whatever it currently offers.
+
+        Its name follows the document type selected in the view's tree: "Create: Order"
+        while Orders are showing and "Create: Invoice" once an Invoice has been made,
+        and the selection persists between runs. Anchoring on one type therefore works
+        until the flow succeeds once, and then stops working, which is a memorable way
+        to spend two runs. Matched on the prefix instead, excluding the main toolbar's
+        "Create: New ..." buttons, which are a different set.
+        """
+        def look():
+            for button in find_all(self.window, control_type="Button"):
+                name = (button.element_info.name or "").strip()
+                if name.startswith(CREATE_PREFIX) and "New" not in name:
+                    return button
+            return None
+
+        return wait_until(look, timeout=timeout,
+                          description="the Documents view's toolbar")
 
     def rows(self, save_to: str | None = None) -> list[dict]:
         """Every document currently listed."""
-        anchor = find_optional(self.window, control_type="Button",
-                               contains="Create: Order", timeout=10)
+        try:
+            anchor = self._create_button()
+        except Exception:
+            anchor = None
         window = self.window.rectangle()
         top = anchor.rectangle().bottom + 4 if anchor is not None \
             else window.top + window.height() // 2

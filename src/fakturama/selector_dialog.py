@@ -67,6 +67,33 @@ class SelectorDialog:
         except Exception as exc:
             raise SelectorClosedEarly(f"{self.TITLE} is no longer open") from exc
 
+    def _raise(self) -> None:
+        """Make this dialog the foreground window, so keystrokes reach it.
+
+        Win32 refuses SetForegroundWindow from a process that does not own the current
+        foreground window, and it refuses by returning rather than by raising, so a click
+        on the dialog is used as the fallback: it both focuses and is harmless, because
+        the point clicked is the title bar rather than anything that commits.
+        """
+        import win32gui
+
+        try:
+            win32gui.SetForegroundWindow(self.handle)
+            time.sleep(0.3)
+            if win32gui.GetForegroundWindow() == self.handle:
+                return
+        except Exception:
+            pass
+
+        try:
+            from pywinauto import mouse
+
+            left, top, right, _ = self.rect()
+            mouse.click(coords=((left + right) // 2, top + 12))
+            time.sleep(0.3)
+        except Exception:
+            pass
+
     # --- searching ------------------------------------------------------------
 
     def search(self, term: str) -> None:
@@ -122,7 +149,7 @@ class SelectorDialog:
         # a colour test sees nothing on a row that is plainly selected.
         rows_are_stale = False
         selected_centre = None
-        for offset in (60, 45, 80, 95, 110, 130):
+        for offset in self._row_offsets(grid):
             before = vision.capture_region(grid)
             mouse.click(coords=(x, grid[1] + offset))
             time.sleep(0.5)
@@ -147,6 +174,17 @@ class SelectorDialog:
             raise ManualReviewRequired(
                 f"could not select any row in {self.TITLE}", stage="selector"
             )
+
+        # Put the dialog back in the foreground before typing at it.
+        #
+        # Between the click above and these keystrokes sits a screen capture, and
+        # capturing minimizes any console window first, because a console over the grid
+        # would be photographed instead of the rows. Minimizing a window moves focus, and
+        # what it moved to here was the Parallels tools console, so Home and Enter went to
+        # a window that had no idea what to do with them. From outside that is
+        # indistinguishable from Enter not committing: the row is visibly selected, the
+        # dialog stays open, and the run reports it would not close.
+        self._raise()
 
         # A selection exists, so Home reliably moves it to the first row.
         keyboard.send_keys("{HOME}")
@@ -223,6 +261,27 @@ class SelectorDialog:
         """A row is a single line of the same text the search label uses."""
         label = self._find_search_label()
         return max((label[3] - label[1]) * 2, 24)
+
+    def _row_offsets(self, grid) -> list[int]:
+        """Heights to try clicking at, measured down from the header's own rule.
+
+        Anchored on the rule rather than on numbers that happened to work, because a few
+        pixels of drift in where the grid box starts is enough to move a fixed offset
+        from the first row into the header, and clicking the header re-sorts instead of
+        selecting. That drift is exactly what happened: the same offset of 60 landed on
+        row one when the grid began at y=153 and on the header when it began at y=146.
+        """
+        from src.uia import actions
+
+        rule = vision.header_rule_y(vision.capture_region(grid))
+        if rule is None:
+            # Nothing reliable to measure from. The old fixed ladder is still better
+            # than not trying, and the checks after the click catch a bad landing.
+            return [60, 45, 80, 95, 110, 130]
+
+        # Rows are a line of text plus padding, which scales with the display.
+        height = max(24, int(19 * actions.display_scale()))
+        return [rule + height // 2 + index * height for index in range(6)]
 
     def _row_point(self, row_index: int) -> tuple[int, int]:
         """Middle of a data row: one header down from the grid top, then N rows."""

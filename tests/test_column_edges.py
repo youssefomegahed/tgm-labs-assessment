@@ -71,3 +71,44 @@ def test_a_blank_image_is_refused_rather_than_guessed_at():
     buffer = io.BytesIO()
     Image.new("RGB", (400, 120), "white").save(buffer, format="PNG")
     assert vision.column_edges(buffer.getvalue()) == []
+
+
+class TestHeaderRule:
+    """Finding where a selector dialog's column header ends.
+
+    This decides where a click aimed at "the first row" actually lands, and getting it
+    wrong is silent: a click on the header re-sorts the list instead of selecting
+    anything, and on a filtered list showing one row the only thing that changes is the
+    sort arrow. Enter then commits nothing and the dialog just stays open.
+    """
+
+    SELECTOR = pathlib.Path(__file__).parent / "fixtures" / "address-selector-grid.png"
+
+    @pytest.fixture(scope="class")
+    def selector(self) -> bytes:
+        return self.SELECTOR.read_bytes()
+
+    def test_finds_the_rule_under_the_header(self, selector):
+        assert vision.header_rule_y(selector) == 60
+
+    def test_the_rule_is_below_the_grids_top_margin(self, selector):
+        # The margin is painted the same shade as the header and separated from it by a
+        # white line, so anything looking for "the first header-coloured band" stops at
+        # 22 and aims every click into the header.
+        assert vision.header_rule_y(selector) > 22
+
+    def test_a_click_aimed_from_the_rule_lands_on_the_first_row(self, selector):
+        rule = vision.header_rule_y(selector)
+        row_height = 38  # at this capture's 2x display scale
+        first_row = rule + row_height // 2
+        # Row one occupies roughly 66..104 in this capture.
+        assert 66 < first_row < 104
+
+    def test_refuses_when_nothing_stands_out(self):
+        import io
+
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (400, 200), "white").save(buffer, format="PNG")
+        assert vision.header_rule_y(buffer.getvalue()) is None

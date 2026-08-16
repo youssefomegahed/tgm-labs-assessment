@@ -215,6 +215,50 @@ def selection_row_center(image: bytes, min_fraction: float = 0.20) -> int | None
     return (band_rows[0] + band_rows[-1]) // 2
 
 
+def header_rule_y(image: bytes, *, search_depth: int = 200) -> int | None:
+    """Where a drawn grid paints the dark rule under its column header.
+
+    Returns the rule's y in the capture's own coordinates, so data rows start just below
+    it. `None` when nothing stands out clearly enough to be trusted.
+
+    This exists because the obvious way to find the header is wrong on these dialogs.
+    Looking for the first band of header-coloured pixels finds the grid's top margin,
+    which is painted the same shade and separated from the real header by a white line,
+    and a click aimed from that lands *on* the header. On a filtered list showing one
+    row, clicking the header re-sorts it and the only thing that changes is the little
+    sort arrow: two pixels, at the top of the grid, which is indistinguishable by size
+    from a row being selected. Nothing is then selected, Enter commits nothing, and the
+    dialog reports only that it would not close.
+
+    The rule itself is unambiguous. It is the one row that is dark across the whole
+    width, where a row of text is dark only where its glyphs are: 312 sampled pixels
+    against 92 for the next darkest row on a real capture.
+    """
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(image)).convert("RGB")
+    width, height = picture.size
+    pixels = picture.load()
+    step = max(1, width // 300)
+    sampled = len(range(0, width, step))
+
+    counts = sorted(
+        ((sum(1 for x in range(0, width, step)
+              if sum(pixels[x, y]) / 3 < 150), y)
+         for y in range(min(height, search_depth))),
+        reverse=True,
+    )
+    if not counts:
+        return None
+
+    best, runner_up = counts[0], (counts[1] if len(counts) > 1 else (0, 0))
+    # Demanding both a wide line and a clear margin over everything else, because a
+    # guess here puts clicks in the header, which is the failure this is here to stop.
+    if best[0] < sampled * 0.25 or best[0] < runner_up[0] * 2:
+        return None
+    return best[1]
+
+
 def changed_row_band(before: bytes, after: bytes,
                      min_fraction: float = 0.15) -> tuple[int, int] | None:
     """The vertical extent of what changed between two captures, or None.

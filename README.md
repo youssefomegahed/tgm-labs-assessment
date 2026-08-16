@@ -11,9 +11,21 @@ the way if they are missing.
 
 ## Where it currently stands
 
-All five stages are implemented and verified against the running application, in one
-continuous session, ending with a saved Invoice marked paid beside its still-open Order.
-[docs/screenshots](docs/screenshots) has the annotated evidence.
+All five stages are implemented and have run end to end against the live application in
+one continuous session, ending with Invoice INV000001 saved as paid beside its still-open
+Order PO000005. [docs/screenshots](docs/screenshots) is the annotated evidence from that
+run.
+
+Two caveats I would rather state than have found. The address selector's *selection*
+branch is intermittent: it worked on the run behind those screenshots and on several
+either side of it, and then began failing consistently on a database that by then held
+ten Orders from repeated runs. The diagnosis is in [NOTES.md](NOTES.md) and the last fix
+for it, aiming clicks from the header's own rule rather than from fixed offsets, is unit
+tested against a real capture but has not yet been confirmed by a green end-to-end run.
+The creation branch, which cancels the dialog rather than committing, is unaffected. And
+Fakturama itself degrades after repeated forced kills, which is what the last few runs
+were fighting; a restored workspace is the first thing to try before reading anything
+into a failure.
 
 **Verified end to end, from the extraction through to a saved, paid Invoice:**
 

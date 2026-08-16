@@ -60,12 +60,11 @@ def complete_and_save(main_window, order: OrderData, log=print) -> dict:
     main_window.focus_editor(OrderEditor.TAB)
     editor = OrderEditor(main_window)
 
-    # Discount and Shipping stay as the brief leaves them, at 0% and free, because this
-    # document supplies no order-level values. They are read rather than assumed.
     totals = editor.totals()
     log(f"order totals {totals}")
 
     _confirm_totals(totals, order, log)
+    _confirm_no_order_level_adjustments(editor, totals, log)
 
     # Read the number Fakturama allocated before saving, so the row can be found by it
     # afterwards. The Cust.Ref. cannot do that job: run the same document twice and the
@@ -104,6 +103,44 @@ def complete_and_save(main_window, order: OrderData, log=print) -> dict:
             stage=STAGE,
         )
     return row
+
+
+def _confirm_no_order_level_adjustments(editor, totals: dict, log) -> None:
+    """Step 4.2: the overall Discount stays at 0% and Shipping stays free.
+
+    Asserted rather than assumed, and worth the few lines. Neither is ever written by
+    this flow, so a non-zero value here means something else moved them: a stray
+    keystroke landing on the wrong field, or a debtor carrying a default discount. Both
+    change what the customer is billed while leaving every line correct, which is exactly
+    the kind of wrong that survives a glance at the item table.
+
+    The brief allows order-level values when the image supplies them. This document
+    supplies none, so anything other than zero is a discrepancy.
+    """
+    from src.errors import ManualReviewRequired
+    from src.uia.actions import _as_number
+
+    wrong = []
+
+    discount = _as_number(totals.get("discount", ""))
+    if discount is None or discount != 0:
+        wrong.append(f"the overall Discount shows {totals.get('discount')!r}, "
+                     f"expected 0%")
+
+    shipping_name, shipping_cost = editor.shipping()
+    if _as_number(shipping_cost) != 0:
+        wrong.append(f"Shipping costs {shipping_cost!r}, expected 0.00")
+    if shipping_name and "free" not in shipping_name.casefold():
+        wrong.append(f"Shipping is {shipping_name!r}, expected free of shipping costs")
+
+    if wrong:
+        raise ManualReviewRequired(
+            "the Order carries order-level values the document does not:\n  "
+            + "\n  ".join(wrong),
+            stage=STAGE,
+        )
+    log(f"discount {totals.get('discount')!r}, shipping {shipping_name!r} at "
+        f"{shipping_cost!r}")
 
 
 def _confirm_totals(totals: dict, order: OrderData, log) -> None:
