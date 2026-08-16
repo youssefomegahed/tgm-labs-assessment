@@ -86,10 +86,12 @@ class VatEditor:
         actions.set_text(find(self.window, control_type="Edit", name="Description"),
                          name, what="VAT Description")
 
-        # Value is a percentage field; Fakturama reformats it on commit, which the
-        # value comparison allows for.
+        # A percentage field that ignores the value pattern: writing "19" through it
+        # leaves the field committing its old "0%". Real keystrokes are what it acts on.
+        # Fakturama then reformats to "19.00 %", which the numeric comparison allows.
         actions.set_text(find(self.window, control_type="Edit", name="Value"),
-                         f"{item.vat_percent.normalize():f}", what="VAT Value")
+                         f"{item.vat_percent.normalize():f}", keystrokes=True,
+                         what="VAT Value")
 
         self._confirm_standard_code()
 

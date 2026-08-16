@@ -72,7 +72,8 @@ def _same_value(actual: str, wanted: str) -> bool:
     return actual_number is not None and actual_number == wanted_number
 
 
-def set_text(element, value: str, *, commit: bool = True, what: str = "field") -> None:
+def set_text(element, value: str, *, commit: bool = True, keystrokes: bool = False,
+             what: str = "field") -> None:
     """Write a value, let the widget commit it, then check it stuck.
 
     The commit matters. Several fields here hold text happily while focused and discard
@@ -83,12 +84,18 @@ def set_text(element, value: str, *, commit: bool = True, what: str = "field") -
     Pass commit=False for a field where moving focus would do something unwanted.
     """
     element.set_focus()
-    try:
-        element.set_edit_text(value)
-    except Exception:
-        # Some SWT widgets refuse the value pattern and only accept real keystrokes.
-        element.type_keys("^a{BACKSPACE}", pause=0.02)
-        element.type_keys(str(value), with_spaces=True, pause=0.02)
+    if keystrokes:
+        # Some fields accept the value pattern without acting on it: the text lands,
+        # nothing raises, and the widget commits its previous value. Those need real
+        # typing, which is indistinguishable to the widget from a person at a keyboard.
+        element.type_keys("^a{BACKSPACE}", pause=0.05)
+        element.type_keys(str(value), with_spaces=True, pause=0.05)
+    else:
+        try:
+            element.set_edit_text(value)
+        except Exception:
+            element.type_keys("^a{BACKSPACE}", pause=0.02)
+            element.type_keys(str(value), with_spaces=True, pause=0.02)
 
     if commit:
         element.type_keys("{TAB}")
