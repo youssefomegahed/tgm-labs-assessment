@@ -130,20 +130,36 @@ def find_message_box(title_contains: str = "", timeout: float = DEFAULT_TIMEOUT)
     return find_dialog(title_contains, timeout)
 
 
-def dismiss_message_box(title_contains: str = "", button: str = "OK",
+def dismiss_message_box(title_contains: str = "", button: str | None = None,
                         timeout: float = DEFAULT_TIMEOUT) -> str:
-    """Acknowledge an alert and return what it said, so callers can log it."""
+    """Dismiss a dialog and return what it said, so callers can log it.
+
+    Cancel is preferred over OK when both exist. Alerts only offer OK, so they are
+    unaffected, but the selector dialogs share this window class and clicking their OK
+    would *commit a selection* rather than dismiss them. A stray selector left open by
+    an earlier run would then quietly attach whatever row happened to be highlighted.
+    """
     from src.uia import actions
-    from src.uia.locator import find
+    from src.uia.locator import find, find_optional
 
     box = find_message_box(title_contains, timeout=timeout)
+    title = (box.window_text() or "").strip()
     message = " ".join(
         (child.window_text() or "").strip()
         for child in box.descendants(control_type="Text")
     ).strip()
 
-    actions.click(find(box, control_type="Button", name=button, timeout=5))
-    return message
+    if button is not None:
+        actions.click(find(box, control_type="Button", name=button, timeout=5))
+        return message or title
+
+    for label in ("Cancel", "No", "OK"):
+        candidate = find_optional(box, control_type="Button", name=label, timeout=2)
+        if candidate is not None:
+            actions.click(candidate)
+            return message or title
+
+    raise ControlNotFound(f"no dismiss button on {title!r}")
 
 
 def minimize_consoles() -> int:
