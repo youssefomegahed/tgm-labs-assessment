@@ -81,7 +81,7 @@ def _try_select(main_window, order: OrderData, log) -> bool:
 
     # The name got us here; the address the Order now shows is what confirms it really
     # is our customer. Anything missing means we picked the wrong person.
-    block = OrderEditor(main_window).address_block
+    block = OrderEditor(main_window).address_block()
     missing = missing_from_address_block(block, order.debtor)
     if missing:
         raise ManualReviewRequired(

@@ -39,16 +39,27 @@ class OrderEditor:
     def order_date(self) -> str:
         return actions.read_value(labelled(self.window, "Date"))
 
-    @property
-    def address_block(self) -> str:
+    def address_block(self, which: str = "Invoice address") -> str:
         """The address text the Order shows for the selected Debtor.
 
-        This is what the brief means by confirming the populated Invoice address, and
-        it is the authoritative check after a selection: it comes from the saved record
-        rather than from a grid cell that may be clipped or showing a different address.
+        This is what the brief means by confirming the populated Invoice address, and it
+        is the authoritative check after a selection: it comes from the saved record
+        rather than from a grid cell, which may be clipped or showing a different one of
+        the debtor's addresses.
+
+        Found through the address tab that contains it rather than from the "Addresses"
+        label, because the block sits below that label rather than beside it.
         """
-        block = labelled(self.window, "Addresses", control_type="Edit", max_gap=200)
-        return actions.read_value(block)
+        from src.uia.locator import find_all
+
+        container = find(self.window, control_type="Tab", name=which)
+        blocks = find_all(container, control_type="Edit")
+        if not blocks:
+            raise LookupError(f"no address block inside the {which!r} tab")
+
+        # The block is the tall multi-line box, not any small field sharing the tab.
+        biggest = max(blocks, key=lambda edit: edit.rectangle().height())
+        return actions.read_value(biggest)
 
     def totals(self) -> dict[str, str]:
         """What the editor currently believes the document comes to.
