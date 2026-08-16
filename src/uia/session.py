@@ -179,6 +179,27 @@ def minimize_consoles() -> int:
     return len(moved)
 
 
+def keep_on_top(window, on: bool = True) -> None:
+    """Pin the application above other windows.
+
+    Minimizing the console is not enough on its own: every `prlctl exec` opens a fresh
+    one, and it appears after any startup tidying has already run. Since clicks land on
+    whatever is painted at a coordinate, and the vision layer reads tables out of screen
+    captures, anything covering the window corrupts both. Making the app topmost is the
+    one fix that holds for a whole run rather than until the next console appears.
+    """
+    import win32con
+    import win32gui
+
+    win32gui.SetWindowPos(
+        window.handle,
+        win32con.HWND_TOPMOST if on else win32con.HWND_NOTOPMOST,
+        0, 0, 0, 0,
+        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+    )
+    time.sleep(0.3)
+
+
 def ensure_maximized(window) -> bool:
     """Make sure the application fills the screen, and say whether it had to act.
 

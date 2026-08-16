@@ -45,6 +45,8 @@ class MainWindow:
         session.minimize_consoles()
         self.window.set_focus()
         session.ensure_maximized(self.window)
+        # Holds for the whole run, unlike minimizing consoles that keep reappearing.
+        session.keep_on_top(self.window)
 
     def click_toolbar(self, key: str) -> None:
         actions.click(find(self.window, control_type="Button", name=TOOLBAR[key]))

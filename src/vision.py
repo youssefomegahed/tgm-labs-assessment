@@ -72,6 +72,16 @@ def capture_region(box: tuple[int, int, int, int], save_to: str | None = None) -
     """
     from PIL import ImageGrab
 
+    # Clear anything that has appeared over the app since the run started. A new
+    # console arrives with every remote command, and a covered region captures as the
+    # console's body rather than the table.
+    try:
+        from src.uia.session import minimize_consoles
+
+        minimize_consoles()
+    except Exception:
+        pass
+
     image = ImageGrab.grab(bbox=box, all_screens=True)
     if save_to:
         image.save(save_to)  # keeping the evidence for the run log
