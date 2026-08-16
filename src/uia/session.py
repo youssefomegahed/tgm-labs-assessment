@@ -236,6 +236,48 @@ def ensure_maximized(window) -> bool:
     return True
 
 
+def force_close_dialogs(limit: int = 8) -> list[str]:
+    """Close stray dialogs using Win32 only, never UIA.
+
+    This exists because a modal dialog blocks UIA calls, which includes the UIA-based
+    code for dismissing dialogs. A selector left open by an interrupted run therefore
+    wedges the next run before it can do anything about it, and the wedge looks like a
+    hang with no output rather than an error.
+
+    WM_CLOSE is what the window's X button sends, so it dismisses without committing,
+    which matters because these dialogs share a class with the selectors and their OK
+    would choose a row.
+
+    Call this at the start of a run, before touching UIA.
+    """
+    import win32con
+    import win32gui
+
+    closed = []
+
+    def visit(handle, _):
+        try:
+            if not win32gui.IsWindowVisible(handle):
+                return True
+            if win32gui.GetClassName(handle) != MESSAGE_BOX_CLASS:
+                return True
+            title = win32gui.GetWindowText(handle) or "(untitled)"
+            win32gui.PostMessage(handle, win32con.WM_CLOSE, 0, 0)
+            closed.append(title)
+        except Exception:
+            pass
+        return True
+
+    for _ in range(limit):
+        before = len(closed)
+        win32gui.EnumWindows(visit, None)
+        if len(closed) == before:
+            break
+        time.sleep(1.0)
+
+    return closed
+
+
 def clear_message_boxes(limit: int = 5) -> list[str]:
     """Dismiss any alert already on screen, and say what they were.
 

@@ -39,6 +39,10 @@ class MainWindow:
         return cls(window)
 
     def focus(self) -> None:
+        # A stray modal from an interrupted run blocks every UIA call, including the
+        # ones that would close it, so clear those through Win32 before anything else.
+        session.force_close_dialogs()
+
         # Nothing may sit over the app: clicks land on whatever covers it, and the
         # vision layer reads tables from screenshots of these regions. The window must
         # also be maximized, for the same reason.
