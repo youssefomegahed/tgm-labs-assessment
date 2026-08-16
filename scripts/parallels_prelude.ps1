@@ -8,8 +8,12 @@
 # Add-Type in this prelude compiles C# on the fly, and that compile hung indefinitely
 # under x64 emulation, taking the whole pipeline down with it.
 
+# Where the repo lives on the share. Supplied by parallels_exec.sh, which derives it
+# from its own location, so there is no path here to go stale when the checkout moves.
 $share = $env:REPO_SHARE
-if (-not $share) { $share = '\\Mac\Home\Desktop\Personal\tgm-labs\tgm-labs-assessment' }
+if (-not $share) {
+    throw "REPO_SHARE is not set. Run this through scripts/parallels_exec.sh, or set it to the repo's \\Mac\Home path yourself."
+}
 
 if (-not (Test-Path 'Z:\')) {
     net use Z: \\Mac\Home /persistent:yes | Out-Null
