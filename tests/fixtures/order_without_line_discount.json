@@ -1,0 +1,63 @@
+{
+  "_comment": "NOT a reading of data/order.png. This is that document with line 1's 10% discount removed and every total recomputed from the remaining figures, and it exists for one reason: this Fakturama's item grid has no Discount column, so a document carrying a line discount stops for manual review at step 3.15 and stages 4 and 5 are never reached. Running the flow against this instead exercises them end to end. The source document's own reading is expected_order.json and is what run.py uses by default. The reference is deliberately different so the two never collide in Data > Documents.",
+  "external_reference": "WEB-2026-0714-B02",
+  "order_date": "2026-07-14",
+  "currency": "EUR",
+  "debtor": {
+    "company": "Northstar Office GmbH",
+    "alias": "NORTHSTAR-BERLIN",
+    "customer_id": "CUST-1007",
+    "contact": {
+      "first_name": "Marta",
+      "last_name": "Klein",
+      "email": "marta.klein@example.test",
+      "phone": "+49 30 5550 1420"
+    },
+    "billing": {
+      "name": "Northstar Office GmbH",
+      "street": "Friedrichstrasse 88",
+      "zip_code": "10117",
+      "city": "Berlin",
+      "country": "Germany"
+    },
+    "delivery": {
+      "name": "Northstar Office Warehouse",
+      "street": "Beusselstrasse 44",
+      "zip_code": "10553",
+      "city": "Berlin",
+      "country": "Germany"
+    }
+  },
+  "payment": {
+    "method": "Bank Transfer",
+    "is_paid": true,
+    "paid_on": "2026-07-18"
+  },
+  "items": [
+    {
+      "position": 1,
+      "sku": "CHR-ERG-01",
+      "description": "Ergonomic Desk Chair",
+      "quantity": "2",
+      "unit": "pcs",
+      "unit_net": "250.00",
+      "discount_percent": "0",
+      "vat_percent": "19",
+      "line_net": "500.00"
+    },
+    {
+      "position": 2,
+      "sku": "MAT-DESK-02",
+      "description": "Anti-Fatigue Desk Mat",
+      "quantity": "3",
+      "unit": "pcs",
+      "unit_net": "40.00",
+      "discount_percent": "0",
+      "vat_percent": "19",
+      "line_net": "120.00"
+    }
+  ],
+  "net_total": "620.00",
+  "vat_total": "117.80",
+  "gross_total": "737.80"
+}

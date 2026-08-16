@@ -33,15 +33,31 @@ def read_value(element) -> str:
         return (element.window_text() or "").strip()
 
 
-_NUMERIC = re.compile(r"^[\s$€£]*-?[\d.,]+\s*[%]?$")
+# What is left once a displayed amount has had its decoration removed.
+_NUMERIC = re.compile(r"^-?\d[\d.,]*%?$")
+
+# Decoration, identified by Unicode category rather than by a list of symbols. Sc is
+# every currency symbol there is, Zs every kind of space including the non-breaking one
+# Fakturama puts before a euro sign, and Cf the directional marks a right-to-left locale
+# wraps a negative amount in.
+#
+# A list would have been shorter and wrong. This originally allowed a symbol only
+# *before* the digits, which is true of "$250.00" and false of "250,00 EUR-sign", so
+# changing the currency locale to Germany made every total comparison fail at once.
+# `_as_number` returning None surfaces downstream as "the document does not match", which
+# is a misleading way to be told that a currency symbol moved to the other end.
+_DECORATION = {"Sc", "Zs", "Cf"}
 
 
 def _as_number(text: str):
     """The numeric meaning of a displayed value, or None if it is not a number."""
-    text = (text or "").strip()
-    if not _NUMERIC.match(text):
+    import unicodedata
+
+    core = "".join(character for character in (text or "").strip()
+                   if unicodedata.category(character) not in _DECORATION)
+    if not _NUMERIC.match(core):
         return None
-    digits = re.sub(r"[^\d.,-]", "", text)
+    digits = re.sub(r"[^\d.,-]", "", core)
     if not digits:
         return None
     # Whichever separator comes last is the decimal point.

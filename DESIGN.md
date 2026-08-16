@@ -146,24 +146,47 @@ duplicate. And the application is pinned above other windows for the duration of
 because a console appears with every remote command and would otherwise land in the
 captures.
 
+### A drawn grid still has real cell editors
 
-### Reading a drawn grid is solvable; writing to one is not, the same way
+The grid being invisible does not make the cells unreachable. **Double-clicking a cell
+puts a real `Edit` into the UIA tree**, positioned exactly over that cell, with a combo's
+list beside it where the column is a dropdown. So writing a quantity is an ordinary
+value-pattern write with an ordinary read-back, the same as every other field in the
+system, behind a click that has to be aimed.
 
-Reading works because a screenshot contains everything a row has. Writing does not have
-an equivalent: there is no property to set, no cell to address, and no way to confirm a
-value except by looking again.
+Aiming is the part that needs pixels, and it needs them rather than a model. Column
+positions come from `vision.column_edges`, which finds the dividers by plain pixel
+counting: SWT paints the column headers in one flat colour and leaves the dividers
+unpainted, so a divider is a narrow gap in that colour, and the lighter row-header corner
+marks where the first real column begins. No API call, and the same answer every time.
 
-So line entry is the one place the design falls back to driving the widget the way a
-person does. Click a row to give the grid focus and a current cell, move between cells
-with the keyboard rather than computing a coordinate per column, and read the result back
-from a capture. Only the row's vertical position comes from geometry; the column comes
-from counting Tab presses, which avoids depending on column widths, and matters because
-the Discount column is hidden entirely until the editor is maximized.
+Two independent sources have to agree before anything is written. Position comes from
+those pixels. Column *names* come from the table read-back, which is a model call, and
+which is reliable because it is reading text rather than measuring. A cell is only
+written to once the editor that opened holds the value the read-back attributes to that
+column on that row, and once its rectangle sits inside the column the pixels identified.
+Either check failing stops the run.
 
-I would rather be plain that this is the weakest part of the approach. Everything else
-either asks the application what is there or verifies that it accepted a value. This asks
-neither, so it leans hardest on the read-back afterwards, and it is the piece I would
-test first against a second document.
+### The vision fallback splits in two, and the split is not obvious
+
+It is tempting to treat "ask a model to look at it" as one capability. It behaves as two,
+with different reliability.
+
+**Reading text out of a capture is dependable**, including on grids the tree cannot see
+at all. This is what `read_table` does for the selector rows and the item lines.
+
+**Grounding positions is dependable only on images with a sane aspect ratio.** On a
+normally proportioned screenshot it is accurate enough to click by. On a very elongated
+one it is not: on an item-grid header of roughly 2300 x 60 the returned boxes come back
+about twice too far right, consistently rather than randomly. Since a click aimed one
+column over lands in a VAT dropdown that silently discards whatever is typed, this is a
+failure that produces no error at all.
+
+So geometry on long thin strips is done with pixels, and text reading keeps the model.
+The safeguard that makes the whole vision path survivable is the same one that covers
+everything else here: because a write is not believed until the application has been
+asked what it now holds, a wrong column produces a caught failure rather than a wrong
+invoice.
 
 ## Knowing each step worked
 
@@ -267,18 +290,29 @@ what makes me comfortable with a non-deterministic component in the pipeline, an
 `--extraction` lets a saved reading be replayed so the UI work does not spend calls.
 
 **Property-based grounding over image matching.** More robust, but it lives or dies on
-what SWT exposes, which I cannot fully know in advance. The vision fallback is the
-hedge.
+what SWT exposes. It exposes more than the UI's appearance suggests: even the drawn item
+grid puts a real editor widget in the tree once a cell is activated. Pixels are kept for
+the two jobs properties cannot do, measuring a drawn grid and confirming a highlight.
 
-**Read-back verification on every write.** Slower, and worth it. Most of the failures I
-expect are silent ones.
+**Read-back verification on every write.** Slower, and worth it. Most of the failures
+here are silent ones, and every one that has occurred was caught by this rather than by
+the code that caused it.
+
+**Where the application sets the ceiling.** The per-line discount cannot be entered,
+because this Fakturama's item grid has no Discount column: six columns, none of them
+Discount, with the preference for it ticked, no column chooser to add it, and no
+persisted column state to reset. The brief's own figures show a grid with eleven. So the
+flow stops for manual review naming the column and the line, rather than approximating
+with the order-level Discount field, which applies to the whole document and would give
+558.00 against this document's 570.00.
 
 **Scope I have not covered.** Order-level discount and shipping are held at zero, which
 the sample supports and the brief allows. Single currency, single page, one document per
 run. Fakturama's first-run database wizard is done by hand once rather than automated.
 No Delivery, Correction or Dunning documents, as instructed.
 
-With more time the first thing I would add is a proper reset between runs, restoring a
-clean copy of the Fakturama workspace so the creation branches can be exercised
-repeatedly without hand-deleting records. The second would be widening the extraction
-beyond one document shape, which mostly means finding more documents to test against.
+Everything here has been proven against one document. The mixed-rate VAT rounding, the
+branch where billing and delivery match, and the unpaid branch of stage 5 are all
+implemented and unit tested where they can be, and none of them has met the application.
+A second source document is what would change that, and it is the first thing I would
+add.

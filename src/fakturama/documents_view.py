@@ -43,15 +43,32 @@ class DocumentsView:
                                  what="the Documents list")
 
     def find_row(self, reference: str, save_to: str | None = None) -> dict | None:
-        """The row whose Cust.Ref. matches, or None.
+        """The first row whose Cust.Ref. matches, or None.
 
-        Matched on the customer reference rather than the document number, because
-        Fakturama allocates the number itself and the brief says to leave it alone, so
-        the reference is the only value we can predict.
+        Only safe where the reference is known to be unique. It is not unique across
+        repeated runs of the same document, so `find_document` is what the flow uses.
         """
         from src.matching import cell_matches
 
         for row in self.rows(save_to):
             if cell_matches(row.get("Cust.Ref.", ""), reference):
+                return row
+        return None
+
+    def find_document(self, number: str, save_to: str | None = None) -> dict | None:
+        """The row for one specific document, by the number Fakturama gave it.
+
+        The number is read off the editor before saving rather than predicted, which is
+        what makes this exact. Matching on Cust.Ref. instead looks fine until the same
+        document is run twice: the list then holds two Orders carrying the same
+        reference, the first one wins, and everything downstream is working on the
+        previous run's document. That presented as the Invoice stage being unable to find
+        an editor tab that was plainly on screen, because it had been told the Order was
+        PO000001 while the tab in front of it said PO000002.
+        """
+        from src.matching import cell_matches
+
+        for row in self.rows(save_to):
+            if cell_matches(row.get("Document", ""), number):
                 return row
         return None

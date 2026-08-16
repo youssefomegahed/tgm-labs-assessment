@@ -67,6 +67,12 @@ def complete_and_save(main_window, order: OrderData, log=print) -> dict:
 
     _confirm_totals(totals, order, log)
 
+    # Read the number Fakturama allocated before saving, so the row can be found by it
+    # afterwards. The Cust.Ref. cannot do that job: run the same document twice and the
+    # list holds two Orders carrying it.
+    number = editor.document_number
+    log(f"about to save {number!r}")
+
     main_window.save()
     time.sleep(4)
     log("saved the Order once")
@@ -74,14 +80,22 @@ def complete_and_save(main_window, order: OrderData, log=print) -> dict:
     # The editor would happily show what we typed. Ask the application instead.
     documents = DocumentsView(main_window)
     documents.open()
-    row = documents.find_row(order.external_reference)
+    row = documents.find_document(number)
     if row is None:
         raise ManualReviewRequired(
-            f"saved the Order but no document with Cust.Ref. "
-            f"{order.external_reference!r} is listed",
+            f"saved the Order but no document numbered {number!r} is listed",
             stage=STAGE,
         )
     log(f"listed as {row}")
+
+    from src.matching import cell_matches
+
+    if not cell_matches(row.get("Cust.Ref.", ""), order.external_reference):
+        raise ManualReviewRequired(
+            f"the saved Order {number!r} lists Cust.Ref. {row.get('Cust.Ref.')!r}, "
+            f"expected {order.external_reference!r}",
+            stage=STAGE,
+        )
 
     state = (row.get("State") or "").strip().lower()
     if state and "open" not in state:

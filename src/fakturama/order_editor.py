@@ -2,83 +2,31 @@
 
 Exposes intent. Nothing above this file knows that Cust.Ref. happens to be a named Edit
 while Date is an anonymous one sitting to the right of its label.
+
+The header, addresses, VAT mode and totals are the same controls the Invoice editor
+carries, so they live on `DocumentEditor`. What is genuinely an Order's own is here: the
+price mode, the two selector icons the brief warns about, and the follow-up buttons.
 """
 
 import time
 from datetime import date
 
 from src.errors import VerificationFailed
+from src.fakturama.document_editor import DocumentEditor, format_date
 from src.uia import actions
 from src.uia.locator import find, labelled, stacked_icons
 
-# Fakturama renders dates as "Aug 15, 2026" in the running locale. strftime's %d pads to
-# two digits and the widget does not, so the day is formatted by hand.
-def format_date(value: date) -> str:
-    return f"{value:%b} {value.day}, {value.year}"
+__all__ = ["OrderEditor", "format_date"]
 
 
-class OrderEditor:
-    """Wraps the whole application window, since the editor is a tab inside it."""
-
+class OrderEditor(DocumentEditor):
     TAB = "New Order"
-
-    def __init__(self, main_window):
-        self.main = main_window
-        self.window = main_window.window
 
     # --- reading -------------------------------------------------------------
 
     @property
-    def document_number(self) -> str:
-        """The proposed No., which the brief says to leave alone. Read to log it."""
-        return actions.read_value(labelled(self.window, "No."))
-
-    @property
-    def customer_reference(self) -> str:
-        return actions.read_value(find(self.window, control_type="Edit", name="Cust.Ref."))
-
-    @property
     def order_date(self) -> str:
         return actions.read_value(labelled(self.window, "Date"))
-
-    def address_block(self, which: str = "Invoice address") -> str:
-        """The address text the Order shows for the selected Debtor.
-
-        This is what the brief means by confirming the populated Invoice address, and it
-        is the authoritative check after a selection: it comes from the saved record
-        rather than from a grid cell, which may be clipped or showing a different one of
-        the debtor's addresses.
-
-        Found through the address tab that contains it rather than from the "Addresses"
-        label, because the block sits below that label rather than beside it.
-        """
-        from src.uia.locator import find_all
-
-        container = find(self.window, control_type="Tab", name=which)
-        blocks = find_all(container, control_type="Edit")
-        if not blocks:
-            raise LookupError(f"no address block inside the {which!r} tab")
-
-        # The block is the tall multi-line box, not any small field sharing the tab.
-        biggest = max(blocks, key=lambda edit: edit.rectangle().height())
-        return actions.read_value(biggest)
-
-    def totals(self) -> dict[str, str]:
-        """What the editor currently believes the document comes to.
-
-        The first row is labelled "Total Net" or "Total Gross" depending on the price
-        mode, so it is looked up by either name rather than assumed.
-        """
-        from src.uia.locator import find_optional
-
-        found = {}
-        for label in ("Total Net", "Total Gross", "Discount", "VAT", "Total"):
-            element = find_optional(
-                self.window, control_type="Edit", name=label, timeout=2
-            )
-            if element is not None:
-                found[label.lower().replace(" ", "_")] = actions.read_value(element)
-        return found
 
     # --- writing -------------------------------------------------------------
 
@@ -129,13 +77,6 @@ class OrderEditor:
         the same row as the Date field.
         """
         actions.select_combo(self._price_mode_combo(), mode, what="price mode")
-
-    def confirm_vat_mode(self, expected: str = "With VAT") -> str:
-        combo = find(self.window, control_type="ComboBox", name="VAT")
-        actual = actions.read_value(combo)
-        if actual != expected:
-            actions.select_combo(combo, expected, what="VAT mode")
-        return expected
 
     def create_follow_up(self, kind: str = "Invoice") -> None:
         """Click a button in the Create a follow-up document group.

@@ -215,6 +215,40 @@ def selection_row_center(image: bytes, min_fraction: float = 0.20) -> int | None
     return (band_rows[0] + band_rows[-1]) // 2
 
 
+def changed_row_band(before: bytes, after: bytes,
+                     min_fraction: float = 0.15) -> tuple[int, int] | None:
+    """The vertical extent of what changed between two captures, or None.
+
+    Colour-agnostic, and that matters more than it sounds. A selected row in the Items
+    grid is a saturated blue that `selection_row_center` finds easily. A selected row in
+    the "Select the address" dialog is a pale wash with a dotted focus border, and the
+    same colour test sees nothing at all on a row that is plainly selected.
+
+    The extent is returned rather than just the centre because the height is what
+    distinguishes the two things a click here can do. Selecting a row changes one row.
+    Clicking a column header re-sorts the list and repaints all of them, which changes
+    pixels just as convincingly while leaving nothing selected.
+    """
+    from PIL import Image, ImageChops
+
+    first = Image.open(io.BytesIO(before)).convert("RGB")
+    second = Image.open(io.BytesIO(after)).convert("RGB")
+    if first.size != second.size:
+        return None
+
+    diff = ImageChops.difference(first, second).convert("L")
+    width, height = diff.size
+    pixels = diff.load()
+    step = max(1, width // 200)
+    needed = (width // step) * min_fraction
+
+    rows = [y for y in range(height)
+            if sum(1 for x in range(0, width, step) if pixels[x, y] > 24) >= needed]
+    if not rows:
+        return None
+    return rows[0], rows[-1]
+
+
 def changed_row_center(before: bytes, after: bytes, min_fraction: float = 0.15) -> int | None:
     """The centre of the horizontal band that differs between two captures.
 
@@ -240,6 +274,121 @@ def changed_row_center(before: bytes, after: bytes, min_fraction: float = 0.15) 
     if not rows:
         return None
     return (rows[0] + rows[-1]) // 2
+
+
+def _is_white(colour) -> bool:
+    return all(channel >= 246 for channel in colour)
+
+
+def _header_band(pixels, width: int, height: int):
+    """The colour a drawn table's column header is painted in, and the rows it occupies.
+
+    Both are derived rather than written down, so a change of theme or of display scale
+    moves the numbers instead of breaking the read.
+    """
+    from collections import Counter
+
+    # Sampled from the top few rows, which sit above the line where any label is painted
+    # and so are pure background. Blank is excluded because SWT paints filler out to the
+    # edge of the viewport past the last column, and on a wide editor there is more
+    # filler than there is table.
+    top = range(1, max(2, min(height, 1 + max(3, height // 12))))
+    shades = Counter(
+        pixels[x, y] for x in range(0, width, 2) for y in top
+        if not _is_white(pixels[x, y])
+    )
+    if not shades:
+        return None
+    header = shades.most_common(1)[0][0]
+
+    def row_is_header(y: int) -> bool:
+        return sum(1 for x in range(0, width, 2) if pixels[x, y] == header) \
+            >= (width / 2) * 0.05
+
+    # Start from the first header row rather than from the top of the capture: a strip
+    # opens with a border row or two that carry none of the header's colour.
+    start = next((y for y in range(height) if row_is_header(y)), None)
+    if start is None:
+        return None
+    bottom = next((y for y in range(start, height) if not row_is_header(y)), height)
+    band = range(start, bottom)
+    if len(band) < 4:
+        return None
+    return header, band
+
+
+def column_edges(image: bytes, *, min_run: int = 8,
+                 max_separator: int = 6) -> list[int]:
+    """Where a drawn table's columns divide, read from a capture of its header strip.
+
+    Deliberately model-free, and the reason is worth stating because the model was tried
+    first. `ground_boxes` locates text reliably on a normally proportioned screenshot,
+    and does not on this one: the Items header is about 2300x60, and on a strip that
+    elongated the returned boxes came back roughly twice too far right. That is what sent
+    the first attempt at line entry into the VAT column, where it typed quantities into a
+    dropdown and reported that nothing had changed.
+
+    Pixels have no such problem. SWT paints the column headers in one flat colour and
+    leaves the dividers between them unpainted, so a divider is a narrow run of x where
+    that colour is absent. The row-header corner above the Pos. column is painted a
+    different, lighter shade, which is what marks the left edge of the first real column.
+
+    Returns edges in the capture's own coordinates, left to right, so `len(edges) - 1`
+    columns are described. Colours are sampled rather than written down, so a theme
+    change moves the numbers instead of breaking the read.
+    """
+    from collections import Counter
+
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(image)).convert("RGB")
+    width, height = picture.size
+    pixels = picture.load()
+
+    found = _header_band(pixels, width, height)
+    if found is None:
+        return []
+    header, band = found
+    depth = len(band)
+
+    def is_header(x: int) -> bool:
+        # Presence, not dominance: much of a header cell's band is glyph pixels where
+        # its label is painted, and that cell is still part of the header.
+        return sum(1 for y in band if pixels[x, y] == header) >= depth * 0.25
+
+    columns = [x for x in range(width) if is_header(x)]
+    if not columns:
+        return []
+
+    left, right = columns[0], columns[-1]
+    edges, x = [left - 1], left
+    while x <= right:
+        if is_header(x):
+            x += 1
+            continue
+        gap_start = x
+        while x <= right and not is_header(x):
+            x += 1
+        if x - gap_start > max_separator:
+            # Too wide to be a divider, so the table has already ended and what follows
+            # is the blank filler SWT paints out to the edge of the viewport.
+            break
+        edges.append((gap_start + x - 1) // 2)
+
+    edges.append(right + 1)
+
+    # SWT paints the filler past the last column in the same colour as the header and
+    # puts no divider before it, so the final span swallows it and can come back several
+    # times too wide. Nothing here edits the last column, but leaving the span honest
+    # keeps the geometry usable for anything that reads it later.
+    if len(edges) >= 4:
+        widths = sorted(edges[index + 1] - edges[index]
+                        for index in range(len(edges) - 2))
+        typical = widths[len(widths) // 2]
+        if edges[-1] - edges[-2] > typical * 1.8:
+            edges[-1] = edges[-2] + typical
+
+    return edges
 
 
 def read_table(image: bytes, columns: list[str], *, what: str = "table") -> list[dict]:

@@ -8,6 +8,18 @@ import argparse
 import json
 import sys
 
+# Windows gives a redirected stdout the cp1252 codepage, and this flow prints values read
+# straight out of Fakturama: currency symbols, the checkmark in a Standard column, a
+# non-breaking space inside a formatted total. Any one of those raises UnicodeEncodeError
+# at the print, which kills a ten-minute run at a logging line with a traceback pointing
+# nowhere near the cause. Replacing rather than raising, because a log line is never worth
+# a failed run.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # already closed, or not a text stream
+        pass
+
 from src.errors import AutomationError, ManualReviewRequired
 from src.extract.client import extract_order
 from src.extract.normalize import to_order_data
@@ -99,6 +111,7 @@ def drive_fakturama(order: OrderData) -> int:
     """
     from src.fakturama.main_window import MainWindow
     from src.flow import debtor as debtor_flow
+    from src.flow import invoice as invoice_flow
     from src.flow import order as order_flow
     from src.flow import products as products_flow
 
@@ -119,10 +132,12 @@ def drive_fakturama(order: OrderData) -> int:
     products_flow.resolve_all(main_window, order, log=step)
 
     print("\nstage 4: confirm and save the Order")
-    order_flow.complete_and_save(main_window, order, log=step)
+    order_row = order_flow.complete_and_save(main_window, order, log=step)
 
-    # Stage 5 lands next: the linked Invoice and its payment status.
-    print("\nstages 1 to 4 complete. The linked Invoice is not built yet.")
+    print("\nstage 5: the linked Invoice and its payment status")
+    invoice_flow.create_and_complete(main_window, order, order_row, log=step)
+
+    print("\nall five stages complete.")
     return 0
 
 

@@ -37,6 +37,11 @@ class SelectorDialog:
     TITLE = ""
     COLUMNS: list[str] = []
 
+    # A change taller than this fraction of the grid is a re-sort repainting every row
+    # rather than one row being selected. A row is a small part of a grid several
+    # hundred pixels tall, so there is a lot of daylight between the two.
+    RESORT_FRACTION = 0.30
+
     def __init__(self, timeout: float = 30.0):
         self.handle = session.find_dialog_handle(self.TITLE, timeout=timeout)
         time.sleep(1.5)  # let the dialog finish building before we look at it
@@ -103,17 +108,41 @@ class SelectorDialog:
         grid = self._grid_box()
         x = grid[0] + 200
 
-        # Walk candidate heights until a click demonstrably changes a row: whatever
-        # colour selection takes here, the clicked row is where pixels changed.
+        # Walk candidate heights until a click demonstrably changes one row.
+        #
+        # Two things a click here can do, and they have to be told apart. Landing on a
+        # row selects it and repaints that row. Landing on a column header re-sorts the
+        # list and repaints all of them, selecting nothing, after which Home and Enter
+        # have nothing to act on and the dialog simply stays open. That was the
+        # "would not close after choosing row 0" failure, and it took two runs in three.
+        #
+        # Height is what separates them, so the band's extent is measured rather than
+        # just its centre. Colour is not usable: this dialog paints a selected row as a
+        # pale wash with a dotted border, not the saturated blue the Items grid uses, and
+        # a colour test sees nothing on a row that is plainly selected.
+        rows_are_stale = False
         selected_centre = None
         for offset in (60, 45, 80, 95, 110, 130):
             before = vision.capture_region(grid)
             mouse.click(coords=(x, grid[1] + offset))
             time.sleep(0.5)
-            after = vision.capture_region(grid)
-            selected_centre = vision.changed_row_center(before, after)
-            if selected_centre is not None:
+            band = vision.changed_row_band(before, vision.capture_region(grid))
+            if band is None:
+                continue
+            if band[1] - band[0] > (grid[3] - grid[1]) * self.RESORT_FRACTION:
+                rows_are_stale = True
                 break
+            selected_centre = (band[0] + band[1]) // 2
+            break
+
+        if rows_are_stale:
+            # The caller matched a row by index against a list read before this click.
+            # After a re-sort that index means something else, so there is nothing safe
+            # left to do here.
+            raise ManualReviewRequired(
+                f"clicking in {self.TITLE} re-sorted the list instead of selecting a "
+                f"row, so the row the search matched can no longer be identified",
+                stage="selector")
         if selected_centre is None:
             raise ManualReviewRequired(
                 f"could not select any row in {self.TITLE}", stage="selector"
