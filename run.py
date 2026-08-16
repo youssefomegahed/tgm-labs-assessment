@@ -100,10 +100,13 @@ def drive_fakturama(order: OrderData) -> int:
     from src.fakturama.main_window import MainWindow
     from src.flow import debtor as debtor_flow
     from src.flow import order as order_flow
+    from src.flow import products as products_flow
 
     def step(message: str) -> None:
-        print(f"  {message}")
+        print(f"  {message}", flush=True)
 
+    # One continuous session, as the brief requires: the Order stays open throughout,
+    # and every stage after the first depends on it.
     main_window = MainWindow.launch()
 
     print("\nstage 1: open the Order")
@@ -112,8 +115,13 @@ def drive_fakturama(order: OrderData) -> int:
     print("\nstage 2: select or create the Debtor")
     debtor_flow.resolve(main_window, order, log=step)
 
-    # Stages 3 to 5 land next: Products and VAT, saving the Order, the linked Invoice.
-    print("\nstages 1 and 2 complete. Products, Order save and Invoice are not built yet.")
+    print("\nstage 3: select or create each Product")
+    products_flow.resolve_all(main_window, order, log=step)
+
+    # Stages 4 and 5 land next: the item line values, saving the Order, and the
+    # linked Invoice with its payment status.
+    print("\nstages 1 to 3 complete. Item line values, Order save and Invoice "
+          "are not built yet.")
     return 0
 
 
