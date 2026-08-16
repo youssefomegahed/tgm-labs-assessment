@@ -48,6 +48,80 @@ def begin(main_window, order: OrderData, log=print) -> OrderEditor:
     return editor
 
 
+def complete_and_save(main_window, order: OrderData, log=print) -> dict:
+    """Stage 4: confirm the Order, save it once, and verify it was stored.
+
+    Returns the row Fakturama lists for it, which is the evidence that the save landed.
+    """
+    from src.errors import ManualReviewRequired
+    from src.fakturama.documents_view import DocumentsView
+
+    main_window.focus()
+    main_window.focus_editor(OrderEditor.TAB)
+    editor = OrderEditor(main_window)
+
+    # Discount and Shipping stay as the brief leaves them, at 0% and free, because this
+    # document supplies no order-level values. They are read rather than assumed.
+    totals = editor.totals()
+    log(f"order totals {totals}")
+
+    _confirm_totals(totals, order, log)
+
+    main_window.save()
+    time.sleep(4)
+    log("saved the Order once")
+
+    # The editor would happily show what we typed. Ask the application instead.
+    documents = DocumentsView(main_window)
+    documents.open()
+    row = documents.find_row(order.external_reference)
+    if row is None:
+        raise ManualReviewRequired(
+            f"saved the Order but no document with Cust.Ref. "
+            f"{order.external_reference!r} is listed",
+            stage=STAGE,
+        )
+    log(f"listed as {row}")
+
+    state = (row.get("State") or "").strip().lower()
+    if state and "open" not in state:
+        raise ManualReviewRequired(
+            f"the saved Order is in state {row.get('State')!r}, expected open",
+            stage=STAGE,
+        )
+    return row
+
+
+def _confirm_totals(totals: dict, order: OrderData, log) -> None:
+    """Check the Order's own totals against the document before saving.
+
+    A mismatch here is the point of the whole exercise: it means what Fakturama holds is
+    not what the customer sent, and saving it would commit wrong numbers.
+    """
+    from src.errors import ManualReviewRequired
+    from src.uia.actions import _as_number
+
+    expected = {
+        "total_net": order.net_total,
+        "vat": order.vat_total,
+        "total": order.gross_total,
+    }
+
+    wrong = []
+    for key, want in expected.items():
+        shown = _as_number(totals.get(key, ""))
+        if shown is None or shown != want:
+            wrong.append(f"{key}: shows {totals.get(key)!r}, document says {want}")
+
+    if wrong:
+        raise ManualReviewRequired(
+            "the Order does not match the document before saving:\n  "
+            + "\n  ".join(wrong),
+            stage=STAGE,
+        )
+    log("totals match the document")
+
+
 def confirm_header(editor: OrderEditor, order: OrderData, log=print) -> None:
     """Re-read the header at the end of the stage.
 

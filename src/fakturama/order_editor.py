@@ -137,6 +137,19 @@ class OrderEditor:
             actions.select_combo(combo, expected, what="VAT mode")
         return expected
 
+    def create_follow_up(self, kind: str = "Invoice") -> None:
+        """Click a button in the Create a follow-up document group.
+
+        The brief is emphatic that the Invoice must be made this way rather than from
+        the top toolbar, because only the follow-up action keeps the Order relationship.
+        The group is found by name first so a same-named toolbar button cannot be hit by
+        accident.
+        """
+        group = find(self.window, control_type="Group",
+                     name="Create a follow-up document")
+        actions.click(find(group, control_type="Button", name=kind))
+        actions.park_pointer()
+
     # --- the two icons the brief warns about ---------------------------------
 
     def open_address_selector(self) -> None:

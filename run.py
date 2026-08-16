@@ -118,10 +118,11 @@ def drive_fakturama(order: OrderData) -> int:
     print("\nstage 3: select or create each Product")
     products_flow.resolve_all(main_window, order, log=step)
 
-    # Stages 4 and 5 land next: the item line values, saving the Order, and the
-    # linked Invoice with its payment status.
-    print("\nstages 1 to 3 complete. Item line values, Order save and Invoice "
-          "are not built yet.")
+    print("\nstage 4: confirm and save the Order")
+    order_flow.complete_and_save(main_window, order, log=step)
+
+    # Stage 5 lands next: the linked Invoice and its payment status.
+    print("\nstages 1 to 4 complete. The linked Invoice is not built yet.")
     return 0
 
 
