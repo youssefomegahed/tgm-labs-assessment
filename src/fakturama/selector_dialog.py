@@ -18,6 +18,7 @@ stay separate per entity, because those differ in every meaningful way.
 import time
 
 from src import vision
+from src.errors import ManualReviewRequired
 from src.uia import actions, session
 from src.uia.locator import find, labelled, wait_stable
 
@@ -56,13 +57,19 @@ class SelectorDialog:
 
     # --- choosing -------------------------------------------------------------
 
-    def choose(self, row_index: int) -> None:
-        """Select a row and commit it, leaving the dialog closed."""
+    def choose(self, row_index: int, close_timeout: float = 12.0) -> None:
+        """Select a row and commit it, leaving the dialog closed.
+
+        The wait for the dialog to disappear is generous on purpose. Committing is not
+        instant, and double-clicking a dialog that is already closing throws inside
+        Fakturama: it logs "Internal Error in: com.sebulli.fakturama.dialogs.Sele..."
+        and, worse, abandons the commit, so the Order gains no line while the automation
+        believes a product was chosen. Only fall back once it is genuinely still open.
+        """
         self.select(row_index)
 
         self.window.type_keys("{ENTER}")
-        time.sleep(1.5)
-        if not self.is_open(timeout=2):
+        if self._closed_within(close_timeout):
             return
 
         left, top, right, bottom = self._grid_box()
@@ -71,7 +78,22 @@ class SelectorDialog:
         y = top + row_height + int((row_index + 0.5) * row_height)
         self.window.double_click_input(coords=(left + 200 - window.left,
                                                y - window.top))
-        time.sleep(1.5)
+
+        if not self._closed_within(close_timeout):
+            raise ManualReviewRequired(
+                f"{self.TITLE} would not close after selecting row {row_index}",
+                stage="selector",
+            )
+
+    def _closed_within(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self.is_open(timeout=0.5):
+                # It has gone; give the editor behind it a moment to take the value.
+                time.sleep(1.5)
+                return True
+            time.sleep(0.5)
+        return False
 
     def select(self, row_index: int) -> None:
         """Move the selection to a row without committing it.

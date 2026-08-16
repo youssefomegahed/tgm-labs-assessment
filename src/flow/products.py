@@ -87,7 +87,29 @@ def _try_select(main_window, item: LineItem, log) -> bool:
         return False
 
     dialog.choose(rows.index(found))
-    time.sleep(2)
     log(f"  selected {found}")
+
+    # Confirm the Order actually gained the line. Selecting reported success while the
+    # dialog was throwing internally and adding nothing, which left the totals at zero
+    # and looked like a locator fault two steps later. The totals are the Order's own
+    # account of what it holds.
+    editor = OrderEditor(main_window)
+    totals = editor.totals()
+    net = totals.get("total_net") or totals.get("total_gross") or ""
+    log(f"  order total is now {net!r}")
+
     main_window.restore_editor_area()
+
+    if _looks_like_zero(net):
+        raise ManualReviewRequired(
+            f"selected Product {item.sku!r} but the Order total is still {net!r}, so "
+            f"the line was not added",
+            stage=STAGE,
+        )
     return True
+
+
+def _looks_like_zero(total: str) -> bool:
+    """Is this total still zero, whatever currency and formatting it carries."""
+    digits = "".join(ch for ch in (total or "") if ch.isdigit())
+    return digits == "" or int(digits) == 0
