@@ -58,7 +58,18 @@ def _try_select(main_window, item: LineItem, log) -> bool:
     # window must be maximized and unobstructed before that region means anything.
     main_window.focus()
     main_window.focus_editor(OrderEditor.TAB)
-    OrderEditor(main_window).open_product_selector()
+
+    # And the editor stack has to be maximized, because selecting the Debtor grows the
+    # address block to five lines and pushes the Items area out of the pane entirely.
+    # Its icons are then either invisible or, worse, confusable with icons from another
+    # part of the form.
+    main_window.maximize_editor_area()
+
+    try:
+        OrderEditor(main_window).open_product_selector()
+    except Exception:
+        main_window.restore_editor_area()
+        raise
 
     dialog = ProductDialog()
     dialog.search(item.sku)
@@ -72,9 +83,11 @@ def _try_select(main_window, item: LineItem, log) -> bool:
 
     if found is None:
         dialog.cancel()
+        main_window.restore_editor_area()
         return False
 
     dialog.choose(rows.index(found))
     time.sleep(2)
     log(f"  selected {found}")
+    main_window.restore_editor_area()
     return True
