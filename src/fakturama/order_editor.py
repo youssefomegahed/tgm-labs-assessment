@@ -93,12 +93,19 @@ class OrderEditor:
         So: type real keystrokes, move focus away with Tab, and only then read back.
         """
         wanted = format_date(value)
-        field = labelled(self.window, "Date")
+        # Digits only, in the order the field displays: month, day, year. Typing the
+        # formatted string scatters across the segments: "Jul 14, 2026" came back as
+        # "Aug 20, 0026", the letters having nudged the month and the digits landing
+        # wherever the caret happened to be. Each segment takes its digits and the
+        # caret advances on its own, so no separators are needed.
+        digits = f"{value.month:02d}{value.day:02d}{value.year:04d}"
 
-        for attempt in range(3):
+        for _ in range(3):
+            field = labelled(self.window, "Date")
             field.set_focus()
-            field.type_keys("^a{DEL}", pause=0.05)
-            field.type_keys(wanted, with_spaces=True, pause=0.05)
+            # Home puts the caret on the first segment whatever it was showing before.
+            field.type_keys("{HOME}", pause=0.05)
+            field.type_keys(digits, pause=0.12)
             field.type_keys("{TAB}")
             time.sleep(0.8)
 
