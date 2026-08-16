@@ -4,8 +4,10 @@ Exposes intent. Nothing above this file knows that Cust.Ref. happens to be a nam
 while Date is an anonymous one sitting to the right of its label.
 """
 
+import time
 from datetime import date
 
+from src.errors import VerificationFailed
 from src.uia import actions
 from src.uia.locator import find, labelled, stacked_icons
 
@@ -81,7 +83,30 @@ class OrderEditor:
     # --- writing -------------------------------------------------------------
 
     def set_date(self, value: date) -> None:
-        actions.set_text(labelled(self.window, "Date"), format_date(value), what="Date")
+        """Set the Date and confirm it after the field has lost focus.
+
+        The date box is a parsed field, not a plain text box. Writing to it and reading
+        straight back shows the new text, because the text really is sitting there, but
+        the widget re-parses on focus loss and reverts to its previous value if it did
+        not like what it got. Verifying before the field commits is verifying nothing.
+
+        So: type real keystrokes, move focus away with Tab, and only then read back.
+        """
+        wanted = format_date(value)
+        field = labelled(self.window, "Date")
+
+        for attempt in range(3):
+            field.set_focus()
+            field.type_keys("^a{DEL}", pause=0.05)
+            field.type_keys(wanted, with_spaces=True, pause=0.05)
+            field.type_keys("{TAB}")
+            time.sleep(0.8)
+
+            if actions.read_value(labelled(self.window, "Date")) == wanted:
+                return
+
+        raise VerificationFailed("Date", wanted,
+                                 actions.read_value(labelled(self.window, "Date")))
 
     def set_customer_reference(self, value: str) -> None:
         actions.set_text(
